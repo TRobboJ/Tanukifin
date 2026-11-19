@@ -26,9 +26,17 @@ First public release.
 
 - Jellyfin web interface in TV layout, with full support for custom CSS themes and web plugins
 - Violet focus glow that follows the remote
-- Pointer mode on the ☰ Menu button for hard-to-reach buttons
+- Pointer mode on the â˜° Menu button for hard-to-reach buttons
 - Native Media3 / ExoPlayer video player with remote controls: seek, play/pause, skip intro, Back to hide controls, Menu for subtitles
 - Fire TV / Android TV launcher banner and phoenix app icon
 - No picture-in-picture, battery prompt, rotation or lock buttons on TVs
 - Installs alongside the official Jellyfin app
 - Based on Jellyfin Android v2.7.3
+# 1.2.0 â€” Tanukifin
+
+- Rename the app, package, patch, release assets and documentation to Tanukifin.
+- Remove the original promotional banner and artwork; use a minimal T launcher tile.
+- Restrict navigation to the exact server origin and replace global native bridges with origin-scoped, main-frame-only messaging.
+- Build validation without signing secrets; require explicit manual publication on main.
+- Pin upstream/action commits, preserve LF patch bytes and reject release/tag replacement.
+- Publish build metadata and SHA256 checksums alongside signed APKs.

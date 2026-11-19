@@ -1,0 +1,39 @@
+name: Validate Tanukifin
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
+        with:
+          distribution: temurin
+          java-version: '21.0.13+9'
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
+      - name: Prepare pinned source and check patch
+        run: python3 scripts/prepare.py
+      - name: Test origin and bridge boundaries
+        run: |
+          mkdir -p .build/policy-tests
+          javac -d .build/policy-tests upstream/app/src/main/java/org/jellyfin/mobile/webapp/ServerOrigin.java checks/ServerOriginTest.java
+          java -cp .build/policy-tests org.jellyfin.mobile.webapp.ServerOriginTest
+          node checks/bridge.test.cjs upstream
+          python3 -m unittest discover -s checks -p 'test_*.py'
+      - name: Build unsigned release APK
+        run: python3 scripts/build.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: Tanukifin-validation-${{ github.sha }}
+          path: out/
+          if-no-files-found: error

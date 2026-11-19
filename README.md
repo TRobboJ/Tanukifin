@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="assets/banner.png" alt="Phoenicxfin" width="720">
-</p>
+# Tanukifin
 
 <p align="center">
   <b>A beautiful, remote-friendly Jellyfin client for Fire TV and Android TV,<br>
@@ -8,26 +6,26 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/hansonds/Phoenicxfin?color=a99aff&label=release"></a>
-  <a href="../../releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/hansonds/Phoenicxfin/total?color=ff4f9a"></a>
+  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TRobboJ/Tanukifin?color=a99aff&label=release"></a>
+  <a href="../../releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/TRobboJ/Tanukifin/total?color=ff4f9a"></a>
   <a href="LICENSE.md"><img alt="License: GPL-2.0" src="https://img.shields.io/badge/license-GPL--2.0-ffb547"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Fire%20TV%20%7C%20Android%20TV-1d2635">
 </p>
 
 ---
 
-## What is Phoenicxfin?
+## What is Tanukifin?
 
 The official Jellyfin app for Fire TV is a separate, native app. It **ignores custom CSS themes and web plugins**, so your TV never looks like Jellyfin does in your browser, on your phone or in Jellyfin Media Player.
 
-Phoenicxfin fixes that. It runs the **same Jellyfin web interface** as your other devices, in Jellyfin's TV layout, and adds everything needed to use it comfortably with a TV remote:
+Tanukifin fixes that. It runs the **same Jellyfin web interface** as your other devices, in Jellyfin's TV layout, and adds everything needed to use it comfortably with a TV remote:
 
 - 🎨 **Your theme, on your TV.** Custom CSS from *Dashboard → General → Custom CSS* works exactly like it does in the browser.
 - 🧩 **Web plugins work too.** Home-screen slideshows, custom home sections and other plugins that add to the web interface show up on the TV.
 - 🎯 **Always know what's selected.** A glowing violet focus ring follows the remote.
 - 🖱️ **Pointer mode.** Press **☰ Menu** for an on-screen cursor that can reach buttons the arrow keys can't.
 - ▶️ **Native video player.** Videos play in the same hardware-accelerated player (Media3 / ExoPlayer) as the official Jellyfin phone app, with full remote control.
-- 📺 **Made for the big screen.** Home-screen banner, no touch-only prompts, no picture-in-picture surprises.
+- 📺 **Made for the big screen.** Simple home-screen tile, no touch-only prompts, no picture-in-picture surprises.
 - 🤝 **Installs next to the official Jellyfin app.** Use both if you like.
 
 ## Install
@@ -36,18 +34,14 @@ Phoenicxfin fixes that. It runs the **same Jellyfin web interface** as your othe
 1. **Settings → My Fire TV → Developer options → Install unknown apps**, and turn it on for **Downloader**.
    (If you don't see *Developer options*, go to **Settings → My Fire TV → About** and click your device name 7 times.)
 2. Install **Downloader** (by AFTVnews) from the Amazon Appstore.
-3. Open Downloader and enter the code **`4351534`**, then press **Go**.
-
-   <p><img alt="Downloader code 4351534" src="https://img.shields.io/badge/Downloader%20code-4351534-a99aff?style=for-the-badge"></p>
-
-   Or type the full link instead:
+3. Open Downloader and enter the full APK URL, then press **Go**:
    ```
-   https://github.com/hansonds/Phoenicxfin/releases/latest/download/Phoenicxfin.apk
+   https://github.com/TRobboJ/Tanukifin/releases/latest/download/Tanukifin.apk
    ```
-4. Install, then open **Phoenicxfin** from *Your Apps & Channels*.
+4. Install, then open **Tanukifin** from *Your Apps & Channels*.
 
 ### Android TV / Google TV
-Install **Downloader** from the Google Play Store and enter the code **`4351534`**, or download `Phoenicxfin.apk` from the [latest release](../../releases/latest) and sideload it (for example with *Send Files to TV*).
+Download `Tanukifin.apk` from the [latest release](../../releases/latest) and sideload it (for example with *Send Files to TV*).
 
 ### First start
 Enter your Jellyfin server address (for example `https://jellyfin.example.com` or `http://192.168.1.10:8096`), then sign in. Servers on your home network usually show up automatically.
@@ -87,12 +81,12 @@ Install the new APK over the old one. Your login and settings are kept.
 
 ## Works with custom CSS
 
-Phoenicxfin loads the Jellyfin web interface straight from your server, so **any custom CSS saved on your server is applied automatically**. That includes CSS loaded with `@import` from GitHub or jsDelivr, and themes such as ElegantFin, Ultrachromic, JellySkin, Finity and [PHOENICX CINEMA](https://github.com/hansonds/Phoenicx-Cinema-Theme). There's nothing to set up in the app.
+Tanukifin loads the Jellyfin web interface straight from your server, so **any custom CSS saved on your server is applied automatically**. That includes CSS loaded with `@import` from GitHub or jsDelivr, and your own CSS themes. There's nothing to set up in the app.
 
-Phoenicxfin's own additions are small and only appear on focused items: the violet focus glow and the pointer. They don't change how your theme looks otherwise.
+Tanukifin's own additions are small and only appear on focused items: the violet focus glow and the pointer. They don't change how your theme looks otherwise.
 
 ### Tips for theme authors and tinkerers
-- **Phoenicxfin always uses Jellyfin's TV layout.** Jellyfin puts the class `layout-tv` on the page, so you can write TV-only rules:
+- **Tanukifin always uses Jellyfin's TV layout.** Jellyfin puts the class `layout-tv` on the page, so you can write TV-only rules:
   ```css
   .layout-tv .card { /* only on TVs */ }
   ```
@@ -102,12 +96,12 @@ Phoenicxfin's own additions are small and only appear on focused items: the viol
   ```css
   .layout-tv * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
   ```
-- **Keep focus outlines visible.** If your theme removes outlines, the remote becomes hard to follow. Phoenicxfin adds its glow back for the most common elements.
+- **Keep focus outlines visible.** If your theme removes outlines, the remote becomes hard to follow. Tanukifin adds its glow back for the most common elements.
 - **The video player can't be themed.** Videos play in the native player for smooth 4K/HDR playback, so CSS doesn't change the playback screen. Everything else is themed.
 
-## Phoenicxfin vs. the official Jellyfin TV app
+## Tanukifin vs. the official Jellyfin TV app
 
-| | Phoenicxfin | Official Jellyfin Android TV |
+| | Tanukifin | Official Jellyfin Android TV |
 |---|---|---|
 | Custom CSS themes | ✅ Yes | ❌ No |
 | Web interface plugins | ✅ Yes | ❌ No |
@@ -117,7 +111,7 @@ Phoenicxfin's own additions are small and only appear on focused items: the viol
 | Scrolling speed on low-end sticks | Good (depends on your theme) | ✅ Fastest |
 | Navigation polish | Good, with pointer as a fallback | ✅ Built only for remotes |
 
-**Choose Phoenicxfin** if you want your themed Jellyfin on the TV. **Choose the official app** if raw speed on a very low-end device matters most. They install side by side, so you can try both.
+**Choose Tanukifin** if you want your themed Jellyfin on the TV. **Choose the official app** if raw speed on a very low-end device matters most. They install side by side, so you can try both.
 
 ## Requirements
 - Fire TV / Fire TV Stick (Fire OS 6 or newer) or Android TV / Google TV (Android 6.0 or newer)
@@ -156,40 +150,29 @@ Open the user menu → *Display* and set *Display mode* to **TV**, then restart 
 Check the server address, including `http://` or `https://` and the port. If the server is outside your home, make sure it's reachable from the TV's network.
 </details>
 
-## Build it yourself
+## Build and publish
 
-Phoenicxfin is the official [Jellyfin Android](https://github.com/jellyfin/jellyfin-android) app with a small set of changes, kept in [`phoenicxfin.patch`](phoenicxfin.patch). The GitHub Actions workflow downloads the matching official release, applies the patch and builds a signed APK.
+The app is the pinned official Jellyfin Android source plus `tanukifin.patch`.
+Pull requests and pushes build an **unsigned release APK** and run security tests; they never publish releases or receive signing secrets.
 
-To build your own copy:
-1. Fork this repository.
-2. Create a signing key: `keytool -genkeypair -keystore phoenicxfin.jks -alias phoenicxfin -keyalg RSA -keysize 4096 -validity 36500 -storetype PKCS12`
-3. Add two repository secrets (*Settings → Secrets and variables → Actions*):
-   - `KEYSTORE_BASE64`: the key file, base64 encoded (`base64 -w0 phoenicxfin.jks`)
-   - `KEYSTORE_PASSWORD`: the key's password
-4. Run the **Build Phoenicxfin** workflow in the *Actions* tab. The APK appears under *Releases*.
+1. Generate a PKCS12 signing keystore outside the repository and back it up securely. Any alias is supported if it contains exactly one private key.
+2. Add `KEYSTORE_BASE64` (Base64-encoded keystore) and `KEYSTORE_PASSWORD` as repository Actions secrets. Do not commit the key or password.
+3. Update `VERSION` in a reviewed PR. Merge it into `main`.
+4. Open Actions → **Publish Tanukifin** → Run workflow on `main`. Enter the exact version in `VERSION` and explicitly check the publish confirmation.
+5. The workflow builds and signs the APK, verifies its signature, records source/patch/APK hashes, then creates a new release. Existing tags or releases are rejected, never overwritten.
 
-**What the patch changes**
-- Starts the web interface in Jellyfin's TV layout and gives it remote focus
-- Adds `phoenicxfin-tv.js`: the focus glow and pointer mode
-- Adds remote handling to the native player (seek, play/pause, skip intro, Back to hide controls)
-- Adds the Fire TV / Android TV launcher entry, banner and phoenix icon
-- Turns off phone-only behaviour on TVs (picture-in-picture, battery prompt, rotation and lock buttons)
-- Uses its own app ID (`org.phoenicx.phoenicxfin`) so it installs next to the official app
+Use the same signing key for updates. This package (`org.tanukifin.tv`) installs separately from the original app; its login/settings are not migrated automatically.
+The original README banner, Downloader code and promotional images have been removed. Android TV retains a minimal T launcher tile for discoverability.
+
+See [SECURITY.md](SECURITY.md) for trust boundaries, build provenance and device checks.
 
 ## Credits
 
-**Phoenicxfin is created and maintained by [Hanson (@hansonds)](https://github.com/hansonds).**
-Logo, name and the TV-focused design are by Hanson. Also by Hanson: the [PHOENICX CINEMA](https://github.com/hansonds/Phoenicx-Cinema-Theme) Jellyfin theme.
-
-Phoenicxfin is built on the work of others:
-- **[Jellyfin](https://jellyfin.org)** and the **[Jellyfin Android](https://github.com/jellyfin/jellyfin-android)** contributors. Phoenicxfin is based on their app and their web interface.
-- **[AndroidX Media3 / ExoPlayer](https://github.com/androidx/media)** for video playback
-- All the open-source libraries used by Jellyfin Android
-
-If you like Phoenicxfin, please ⭐ star the repo, and consider [supporting the Jellyfin project](https://opencollective.com/jellyfin).
+Tanukifin is maintained independently by TRobboJ. It derives from [Hanson's original TV client](https://github.com/hansonds/Phoenicxfin) and the official [Jellyfin Android](https://github.com/jellyfin/jellyfin-android) app. Original authorship and licence notices are retained; the original promotional artwork is not included.
+Thanks to Jellyfin contributors, AndroidX Media3 / ExoPlayer and their open-source dependencies.
 
 ## License
 
-Phoenicxfin is free software, licensed under the **[GNU General Public License v2.0](LICENSE.md)**, the same license as Jellyfin Android. The complete source is in this repository: the official Jellyfin Android release named in the workflow plus `phoenicxfin.patch`.
+Tanukifin is free software, licensed under the **[GNU General Public License v2.0](LICENSE.md)**, the same license as Jellyfin Android. The complete source is in this repository: the official Jellyfin Android release named in the workflow plus `tanukifin.patch`.
 
-Phoenicxfin is an independent project. It is **not affiliated with or endorsed by the Jellyfin project**. "Jellyfin" is used only to describe compatibility.
+Tanukifin is an independent project. It is **not affiliated with or endorsed by the Jellyfin project**. "Jellyfin" is used only to describe compatibility.

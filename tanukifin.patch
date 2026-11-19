@@ -1,0 +1,2095 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 396dbe2708c99481a5f7a888a044a312f59bb1a5..ca553de2960d7e12778e67c9671417227c7040ec 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -31,6 +31,8 @@ android {
+     compileSdk = libs.versions.android.compileSdk.get().toInt()
+ 
+     defaultConfig {
++        // Tanukifin: own package name, installs next to the official Jellyfin app
++        applicationId = "org.tanukifin.tv"
+         minSdk = libs.versions.android.minSdk.get().toInt()
+         targetSdk = libs.versions.android.targetSdk.get().toInt()
+         versionName = project.getVersionName()
+@@ -122,7 +124,7 @@ android {
+     }
+ }
+ 
+-base.archivesName.set("jellyfin-android-v${project.getVersionName()}")
++base.archivesName.set("tanukifin")
+ 
+ dependencies {
+     val proprietaryImplementation by configurations
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 6ebe9a6f48ee1ecde7fbb22216fd1090b122e2c2..13c4ce57bdadea77831c6b5e6817a37e2eef88a3 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -2,6 +2,10 @@
+     xmlns:tools="http://schemas.android.com/tools"
+     android:installLocation="auto">
+ 
++    <!-- Tanukifin: installable and launchable on Fire TV / Android TV -->
++    <uses-feature android:name="android.software.leanback" android:required="false" />
++    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
++
+     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+     <uses-permission android:name="android.permission.INTERNET" />
+     <uses-permission
+@@ -37,6 +41,7 @@
+     <application
+         android:name=".JellyfinApplication"
+         android:allowBackup="true"
++        android:banner="@drawable/tv_banner"
+         android:fullBackupContent="@xml/backup_content"
+         android:icon="@mipmap/ic_launcher"
+         android:label="@string/app_name"
+@@ -63,6 +68,21 @@
+             </intent-filter>
+         </activity>
+ 
++        <!-- Tanukifin: TV launcher entry. Fire TV shows a sideloaded app's icon on its home row,
++             so the TV entry uses the wide banner image as its icon too. -->
++        <activity-alias
++            android:name=".TvLauncherActivity"
++            android:banner="@drawable/tv_banner"
++            android:exported="true"
++            android:icon="@drawable/tv_banner"
++            android:label="@string/app_name"
++            android:targetActivity=".MainActivity">
++            <intent-filter>
++                <action android:name="android.intent.action.MAIN" />
++                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
++            </intent-filter>
++        </activity-alias>
++
+ 
+         <service
+             android:name=".webapp.RemotePlayerService"
+diff --git a/app/src/main/assets/native/injectionScript.js b/app/src/main/assets/native/injectionScript.js
+index 7704ed258300a91b5d0bd020acb5f2181c25f85a..06d62abc90bb8f07f3b316fbae355c789d18b211 100644
+--- a/app/src/main/assets/native/injectionScript.js
++++ b/app/src/main/assets/native/injectionScript.js
+@@ -2,6 +2,7 @@
+     const scripts = [
+         '/native/nativeshell.js',
+         '/native/EventEmitter.js',
++        '/native/tanukifin-tv.js',
+         document.currentScript.src.concat('?deferred=true&ts=', Date.now())
+     ];
+     for (const script of scripts) {
+diff --git a/app/src/main/assets/native/nativeshell.js b/app/src/main/assets/native/nativeshell.js
+index 30f77ccc19209a05097cebd1f492f463c8255c01..e979a6ff01b46664781049f5934723cdd1bf8720 100644
+--- a/app/src/main/assets/native/nativeshell.js
++++ b/app/src/main/assets/native/nativeshell.js
+@@ -4,7 +4,7 @@ const features = [
+     "displaylanguage",
+     "downloadmanagement",
+     "exit",
+-    "externallinks",
++    // Tanukifin: no external website links (IMDb, TMDb...) in the interface
+     "filedownload",
+     "fileinput",
+     "htmlaudioautoplay",
+@@ -106,7 +106,8 @@ function getDeviceProfile(profileBuilder, item) {
+ window.NativeShell.AppHost = {
+     init() {},
+     getDefaultLayout() {
+-        return "mobile";
++        // Tanukifin: always start in the remote-friendly TV layout
++        return "tv";
+     },
+     supports(command) {
+         command = command.toLowerCase();
+diff --git a/app/src/main/assets/native/tanukifin-bridge.js b/app/src/main/assets/native/tanukifin-bridge.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..c29c44b5877247d6cd09e202d5f66f8fa44d56f2
+--- /dev/null
++++ b/app/src/main/assets/native/tanukifin-bridge.js
+@@ -0,0 +1,36 @@
++// Invoked by an origin-scoped document-start script before Jellyfin's scripts.
++(function (config) {
++    'use strict';
++    // location.origin omits default ports, so canonicalize both with URL.
++    if (window !== window.top || new URL(config.origin).origin !== location.origin) return;
++    const transport = window.TanukifinBridge;
++    window.addEventListener('tanukifin-state', event => Object.assign(config, event.detail));
++    const command = method => (...args) => {
++        transport.postMessage(JSON.stringify({ method, args }));
++        return true;
++    };
++    const methods = (prefix, names) => Object.fromEntries(
++        names.map(name => [name, command(prefix + '.' + name)])
++    );
++    window.NativeInterface = Object.freeze(Object.assign(methods('NativeInterface', [
++        'enableFullscreen', 'disableFullscreen', 'updateMediaSession', 'hideMediaSession',
++        'updateVolumeLevel', 'downloadFiles', 'openDownloadManager', 'openClientSettings',
++        'openServerSelection', 'exitApp', 'execCast'
++    ]), {
++        getDeviceInformation: () => config.deviceInformation,
++        getCodecCapabilities: () => config.codecCapabilities,
++        hasChromecast: () => config.chromecast,
++        // Arbitrary intents are deliberately not available through the bridge.
++        openUrl: () => false
++    }));
++    window.NativePlayer = Object.freeze(Object.assign(methods('NativePlayer', [
++        'loadPlayer', 'pausePlayer', 'resumePlayer', 'stopPlayer', 'destroyPlayer',
++        'seekTicks', 'seekMs', 'setVolume'
++    ]), { isEnabled: () => config.nativePlayer }));
++    window.ExternalPlayer = Object.freeze(Object.assign(methods('ExternalPlayer', ['initPlayer']), {
++        isEnabled: () => config.externalPlayer
++    }));
++    window.MediaSegments = Object.freeze(Object.assign(methods('MediaSegments', ['setSegmentTypeAction']), {
++        getSupportedSegmentTypes: () => config.segmentTypes
++    }));
++})
+diff --git a/app/src/main/assets/native/tanukifin-tv.js b/app/src/main/assets/native/tanukifin-tv.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..a4026a7b24b7601c59ffbfbe19c6df38c395bb11
+--- /dev/null
++++ b/app/src/main/assets/native/tanukifin-tv.js
+@@ -0,0 +1,275 @@
++/*
++ * Tanukifin TV helper
++ * - Strong, cinematic focus glow so the remote's selection is always visible (TV layout only)
++ * - "Pointer mode": an on-screen cursor driven by the D-pad, toggled with the remote's Menu (Menu) button.
++ *   OK clicks whatever is under the cursor, Back turns the pointer off.
++ * Additive only: it never changes how your theme looks when nothing is focused.
++ */
++(() => {
++    if (window.__tanuki) return;
++
++    const VIOLET = '#a99aff';
++
++    // ---------- Focus glow ----------
++    const css = `
++.layout-tv .card:focus .cardScalable,
++.layout-tv .card:focus-within .cardScalable {
++    outline: 3px solid ${VIOLET} !important;
++    outline-offset: 4px !important;
++    box-shadow: 0 0 0 7px rgba(169,154,255,.22), 0 0 34px rgba(147,121,255,.60) !important;
++}
++.layout-tv .card .cardBox { transition: transform .18s cubic-bezier(.22,1,.36,1); }
++.layout-tv .card:focus .cardBox { transform: scale(1.045); }
++.layout-tv .card:focus .cardText-first,
++.layout-tv .card:focus .cardText { color: #fff !important; }
++
++.layout-tv .emby-button:focus,
++.layout-tv .paper-icon-button-light:focus,
++.layout-tv .emby-tab-button:focus,
++.layout-tv .navMenuOption:focus,
++.layout-tv .listItem:focus,
++.layout-tv .actionSheetMenuItem:focus,
++.layout-tv .btnPlay:focus,
++.layout-tv .detailButton:focus,
++.layout-tv .emby-select:focus,
++.layout-tv .emby-input:focus,
++.layout-tv .emby-checkbox-label:focus-within,
++.layout-tv .skip-button:focus,
++.layout-tv a:focus {
++    outline: 2px solid ${VIOLET} !important;
++    outline-offset: 3px !important;
++    box-shadow: 0 0 0 5px rgba(169,154,255,.20), 0 0 22px rgba(147,121,255,.55) !important;
++    border-radius: 12px;
++}
++.layout-tv .emby-tab-button:focus { background: rgba(169,154,255,.18) !important; }
++
++#tanuki-cursor {
++    position: fixed; left: 0; top: 0; width: 34px; height: 34px;
++    z-index: 2147483647; pointer-events: none; display: none;
++    transform: translate(-4px, -2px);
++    filter: drop-shadow(0 0 6px rgba(147,121,255,.9)) drop-shadow(0 3px 6px rgba(0,0,0,.7));
++    will-change: left, top;
++}
++#tanuki-cursor.tanuki-press { transform: translate(-4px, -2px) scale(.82); }
++#tanuki-toast {
++    position: fixed; left: 50%; bottom: 6vh; transform: translate(-50%, 20px);
++    z-index: 2147483647; pointer-events: none; opacity: 0;
++    padding: .7em 1.4em; border-radius: 999px;
++    background: rgba(17,24,39,.92); color: #f7f7fc;
++    border: 1px solid rgba(169,154,255,.55);
++    box-shadow: 0 0 24px rgba(147,121,255,.45);
++    font: 500 1.05rem/1.3 system-ui, sans-serif; letter-spacing: .02em;
++    transition: opacity .25s, transform .25s;
++}
++#tanuki-toast.tanuki-show { opacity: 1; transform: translate(-50%, 0); }
++`;
++    const style = document.createElement('style');
++    style.id = 'tanuki-tv-style';
++    style.textContent = css;
++    (document.head || document.documentElement).appendChild(style);
++
++    // ---------- Toast ----------
++    let toastEl = null;
++    let toastTimer = 0;
++    function toast(text, ms = 2600) {
++        if (!toastEl) {
++            toastEl = document.createElement('div');
++            toastEl.id = 'tanuki-toast';
++            document.body.appendChild(toastEl);
++        }
++        toastEl.textContent = text;
++        toastEl.classList.add('tanuki-show');
++        clearTimeout(toastTimer);
++        toastTimer = setTimeout(() => toastEl.classList.remove('tanuki-show'), ms);
++    }
++
++    // ---------- Pointer mode ----------
++    const cursor = document.createElement('div');
++    cursor.id = 'tanuki-cursor';
++    cursor.innerHTML = '<svg viewBox="0 0 24 24" width="34" height="34"><path d="M4 2.5l15.5 9.2-6.9 1.5 4 7.3-3 1.6-4-7.4-5.6 4.6z" fill="#fff" stroke="' + VIOLET + '" stroke-width="1.6" stroke-linejoin="round"/></svg>';
++
++    let pointerOn = false;
++    let x = window.innerWidth / 2;
++    let y = window.innerHeight / 2;
++    const held = { ArrowUp: 0, ArrowDown: 0, ArrowLeft: 0, ArrowRight: 0 };
++    let looping = false;
++    let lastHover = null;
++
++    function place() {
++        cursor.style.left = x + 'px';
++        cursor.style.top = y + 'px';
++    }
++
++    function elementAtCursor() {
++        return document.elementFromPoint(Math.round(x), Math.round(y));
++    }
++
++    function fire(el, type, Ctor) {
++        const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0 };
++        try {
++            el.dispatchEvent(Ctor === 'pointer' && window.PointerEvent
++                ? new PointerEvent(type, Object.assign({ pointerType: 'mouse', isPrimary: true }, opts))
++                : new MouseEvent(type, opts));
++        } catch (e) { /* ignore */ }
++    }
++
++    function hover() {
++        const el = elementAtCursor();
++        if (el === lastHover) return;
++        if (lastHover) {
++            fire(lastHover, 'pointerout', 'pointer');
++            fire(lastHover, 'mouseout');
++        }
++        lastHover = el;
++        if (el) {
++            fire(el, 'pointerover', 'pointer');
++            fire(el, 'mouseover');
++            fire(el, 'mousemove');
++        }
++    }
++
++    function scrollableParent(el, horizontal) {
++        while (el && el !== document.body && el !== document.documentElement) {
++            const s = getComputedStyle(el);
++            const ov = horizontal ? s.overflowX : s.overflowY;
++            if ((ov === 'auto' || ov === 'scroll')
++                && (horizontal ? el.scrollWidth > el.clientWidth : el.scrollHeight > el.clientHeight)) {
++                return el;
++            }
++            el = el.parentElement;
++        }
++        return null;
++    }
++
++    function edgeScroll(dx, dy) {
++        const el = elementAtCursor();
++        const target = scrollableParent(el, dx !== 0);
++        if (target) {
++            target.scrollBy(dx, dy);
++        } else {
++            window.scrollBy(dx, dy);
++        }
++    }
++
++    function loop() {
++        const now = performance.now();
++        let dx = 0;
++        let dy = 0;
++        for (const k in held) {
++            if (!held[k]) continue;
++            const t = (now - held[k]) / 1000;
++            const speed = Math.min(5 + t * 26, 30); // accelerate while held
++            if (k === 'ArrowUp') dy -= speed;
++            if (k === 'ArrowDown') dy += speed;
++            if (k === 'ArrowLeft') dx -= speed;
++            if (k === 'ArrowRight') dx += speed;
++        }
++        if (dx === 0 && dy === 0) {
++            looping = false;
++            return;
++        }
++        const w = window.innerWidth;
++        const h = window.innerHeight;
++        const nx = Math.max(2, Math.min(w - 4, x + dx));
++        const ny = Math.max(2, Math.min(h - 4, y + dy));
++        // Scroll the page/row when pushing against an edge
++        if (nx !== x + dx || nx <= 24 || nx >= w - 24) edgeScroll(dx * 1.6, 0);
++        if (ny !== y + dy || ny <= 24 || ny >= h - 24) edgeScroll(0, dy * 1.6);
++        x = nx;
++        y = ny;
++        place();
++        hover();
++        requestAnimationFrame(loop);
++    }
++
++    function click() {
++        const el = elementAtCursor();
++        if (!el) return;
++        cursor.classList.add('tanuki-press');
++        setTimeout(() => cursor.classList.remove('tanuki-press'), 140);
++        fire(el, 'pointerdown', 'pointer');
++        fire(el, 'mousedown');
++        // Move keyboard focus there too, so the D-pad continues from here after the pointer is turned off
++        const focusTarget = el.closest('button, a, input, select, textarea, [tabindex], .card, .listItem');
++        if (focusTarget && typeof focusTarget.focus === 'function') {
++            try { focusTarget.focus({ preventScroll: true }); } catch (e) { focusTarget.focus(); }
++        }
++        fire(el, 'pointerup', 'pointer');
++        fire(el, 'mouseup');
++        fire(el, 'click');
++    }
++
++    function setPointer(on) {
++        on = !!on;
++        if (on === pointerOn) return pointerOn;
++        pointerOn = on;
++        if (!cursor.isConnected) document.body.appendChild(cursor);
++        if (on) {
++            // Start the pointer on whatever currently has focus
++            const a = document.activeElement;
++            if (a && a !== document.body && a.getBoundingClientRect) {
++                const r = a.getBoundingClientRect();
++                if (r.width && r.height) {
++                    x = r.left + r.width / 2;
++                    y = r.top + r.height / 2;
++                }
++            }
++            place();
++            cursor.style.display = 'block';
++            hover();
++            toast('Pointer ON  \u2022  OK = click  \u2022  Back or \u2630 = off');
++        } else {
++            cursor.style.display = 'none';
++            for (const k in held) held[k] = 0;
++            toast('Pointer OFF', 1400);
++        }
++        return pointerOn;
++    }
++
++    // Capture phase on window runs before Jellyfin's own keyboard navigation
++    window.addEventListener('keydown', (e) => {
++        if (!pointerOn) return;
++        if (e.key in held) {
++            if (!held[e.key]) held[e.key] = performance.now();
++            e.preventDefault();
++            e.stopImmediatePropagation();
++            if (!looping) {
++                looping = true;
++                requestAnimationFrame(loop);
++            }
++        } else if (e.key === 'Enter' || e.keyCode === 13) {
++            e.preventDefault();
++            e.stopImmediatePropagation();
++            if (!e.repeat) click();
++        }
++    }, true);
++
++    window.addEventListener('keyup', (e) => {
++        if (!pointerOn) return;
++        if (e.key in held) {
++            held[e.key] = 0;
++            e.preventDefault();
++            e.stopImmediatePropagation();
++        } else if (e.key === 'Enter' || e.keyCode === 13) {
++            e.preventDefault();
++            e.stopImmediatePropagation();
++        }
++    }, true);
++
++    window.__tanuki = {
++        setPointer,
++        togglePointer: () => setPointer(!pointerOn),
++        isPointer: () => pointerOn,
++        toast
++    };
++
++    // One-time tip
++    try {
++        if (!localStorage.getItem('tanuki_tip_shown')) {
++            setTimeout(() => {
++                toast('Tip: press \u2630 Menu on the remote for a pointer', 5000);
++                localStorage.setItem('tanuki_tip_shown', '1');
++            }, 6000);
++        }
++    } catch (e) { /* ignore */ }
++})();
+diff --git a/app/src/main/java/org/jellyfin/mobile/JellyfinApplication.kt b/app/src/main/java/org/jellyfin/mobile/JellyfinApplication.kt
+index 5acc9f1790bf3d68ac1c925ea1a1c48730cc6c70..c4b5faf7449a14c12867108435e2f3c526550234 100644
+--- a/app/src/main/java/org/jellyfin/mobile/JellyfinApplication.kt
++++ b/app/src/main/java/org/jellyfin/mobile/JellyfinApplication.kt
+@@ -5,6 +5,7 @@ import android.webkit.WebView
+ import org.jellyfin.mobile.app.apiModule
+ import org.jellyfin.mobile.app.applicationModule
+ import org.jellyfin.mobile.data.databaseModule
++import org.jellyfin.mobile.utils.CrashReporter
+ import org.jellyfin.mobile.utils.JellyTree
+ import org.jellyfin.mobile.utils.isWebViewSupported
+ import org.koin.android.ext.koin.androidContext
+@@ -17,6 +18,9 @@ class JellyfinApplication : Application() {
+     override fun onCreate() {
+         super.onCreate()
+ 
++        // Tanukifin: remember crash details so they can be shown on the next start
++        CrashReporter.install(this)
++
+         // Setup logging
+         Timber.plant(JellyTree())
+ 
+diff --git a/app/src/main/java/org/jellyfin/mobile/MainActivity.kt b/app/src/main/java/org/jellyfin/mobile/MainActivity.kt
+index e655ecb436de8f5e1b38a79fefff2ccbf875bfaf..fdb6cf951a4b41b08d44dfbc1cffdf876cc23cc8 100644
+--- a/app/src/main/java/org/jellyfin/mobile/MainActivity.kt
++++ b/app/src/main/java/org/jellyfin/mobile/MainActivity.kt
+@@ -8,6 +8,7 @@ import android.graphics.Color
+ import android.os.Bundle
+ import android.os.IBinder
+ import android.provider.Settings
++import android.view.KeyEvent
+ import android.view.OrientationEventListener
+ import android.widget.Toast
+ import androidx.activity.OnBackPressedCallback
+@@ -31,6 +32,7 @@ import org.jellyfin.mobile.utils.AndroidVersion
+ import org.jellyfin.mobile.utils.BackPressInterceptor
+ import org.jellyfin.mobile.utils.BluetoothPermissionHelper
+ import org.jellyfin.mobile.utils.Constants
++import org.jellyfin.mobile.utils.CrashReporter
+ import org.jellyfin.mobile.utils.PermissionRequestHelper
+ import org.jellyfin.mobile.utils.SmartOrientationListener
+ import org.jellyfin.mobile.utils.extensions.replaceFragment
+@@ -142,6 +144,9 @@ class MainActivity : AppCompatActivity() {
+         // Handle back presses
+         onBackPressedDispatcher.addCallback(this, onBackPressed = onBackPressedCallback)
+ 
++        // Tanukifin: show what went wrong if the app crashed last time
++        CrashReporter.showLastCrashIfAny(this)
++
+         // Setup Chromecast
+         chromecast.initializePlugin(this)
+     }
+@@ -191,6 +196,21 @@ class MainActivity : AppCompatActivity() {
+         return true
+     }
+ 
++    /**
++     * Tanukifin: routes Fire TV remote keys to the player (seek / play / pause / show controls)
++     * and the Menu button to the web interface's pointer mode.
++     */
++    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
++        when (val currentFragment = supportFragmentManager.findFragmentById(R.id.fragment_container)) {
++            is PlayerFragment -> if (currentFragment.onTvKeyEvent(event)) return true
++            is WebViewFragment -> if (event.keyCode == KeyEvent.KEYCODE_MENU) {
++                if (event.action == KeyEvent.ACTION_UP) currentFragment.togglePointerMode()
++                return true
++            }
++        }
++        return super.dispatchKeyEvent(event)
++    }
++
+     override fun onUserLeaveHint() {
+         super.onUserLeaveHint()
+         for (fragment in supportFragmentManager.fragments) {
+diff --git a/app/src/main/java/org/jellyfin/mobile/app/AppPreferences.kt b/app/src/main/java/org/jellyfin/mobile/app/AppPreferences.kt
+index 0f33bc117c0e9198d4e2560fb27543991d620f9f..6694ec4e009c579b3252801e48568711a13dbaf9 100644
+--- a/app/src/main/java/org/jellyfin/mobile/app/AppPreferences.kt
++++ b/app/src/main/java/org/jellyfin/mobile/app/AppPreferences.kt
+@@ -2,6 +2,7 @@ package org.jellyfin.mobile.app
+ 
+ import android.content.Context
+ import android.content.SharedPreferences
++import android.content.pm.PackageManager
+ import android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+ import androidx.core.content.edit
+ import org.jellyfin.mobile.downloads.DownloadMethod
+@@ -16,6 +17,11 @@ class AppPreferences(context: Context) {
+     private val sharedPreferences: SharedPreferences =
+         context.getSharedPreferences("${context.packageName}_preferences", Context.MODE_PRIVATE)
+ 
++    /** Tanukifin: true on Fire TV / Android TV devices */
++    private val isTvDevice: Boolean = context.packageManager.let { pm ->
++        pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || !pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
++    }
++
+     var currentServerId: Long?
+         get() = sharedPreferences.getLong(Constants.PREF_SERVER_ID, -1).takeIf { it >= 0 }
+         set(value) {
+@@ -123,7 +129,8 @@ class AppPreferences(context: Context) {
+         get() = sharedPreferences.getBoolean(Constants.PREF_EXOPLAYER_ALLOW_HORIZONTAL_GESTURE, true)
+ 
+     val exoPlayerDirectPlayAss: Boolean
+-        get() = sharedPreferences.getBoolean(Constants.PREF_EXOPLAYER_DIRECT_PLAY_ASS, false)
++        // Tanukifin: on TVs, direct play styled (ASS/SSA) subtitles by default to avoid server transcoding
++        get() = sharedPreferences.getBoolean(Constants.PREF_EXOPLAYER_DIRECT_PLAY_ASS, isTvDevice)
+ 
+     val exoPlayerNetworkBuffer: String
+         get() = sharedPreferences.getString(Constants.PREF_EXOPLAYER_NETWORK_BUFFER, Constants.NETWORK_BUFFER_AUTO)!!
+diff --git a/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt b/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt
+index c307fd628ab64ed152f965473f55f157e98bd4dd..448bae5fe9a769674897efcab7f724a27429ee27 100644
+--- a/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt
++++ b/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt
+@@ -3,18 +3,24 @@ package org.jellyfin.mobile.player.ui
+ import android.app.Activity
+ import android.app.PictureInPictureParams
+ import android.content.pm.ActivityInfo
++import android.content.pm.PackageManager
+ import android.content.res.Configuration
++import android.graphics.BitmapFactory
+ import android.graphics.Rect
+ import android.os.Build
+ import android.os.Bundle
+ import android.os.Handler
+ import android.os.Looper
++import android.text.format.DateFormat
++import android.view.KeyEvent
+ import android.view.LayoutInflater
+ import android.view.OrientationEventListener
+ import android.view.View
+ import android.view.ViewGroup
+ import android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+ import android.widget.ImageButton
++import android.widget.ImageView
++import android.widget.TextView
+ import androidx.annotation.RequiresApi
+ import androidx.appcompat.widget.Toolbar
+ import androidx.core.view.ViewCompat
+@@ -26,9 +32,13 @@ import androidx.fragment.app.Fragment
+ import androidx.fragment.app.viewModels
+ import androidx.lifecycle.lifecycleScope
+ import androidx.media3.common.Player
++import androidx.media3.ui.AspectRatioFrameLayout
++import androidx.media3.ui.DefaultTimeBar
+ import androidx.media3.ui.PlayerView
++import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
+ import org.jellyfin.mobile.R
+ import org.jellyfin.mobile.app.AppPreferences
+ import org.jellyfin.mobile.databinding.ExoPlayerControlViewBinding
+@@ -37,6 +47,7 @@ import org.jellyfin.mobile.player.PlayerException
+ import org.jellyfin.mobile.player.PlayerViewModel
+ import org.jellyfin.mobile.player.interaction.PlayOptions
+ import org.jellyfin.mobile.player.interaction.PlayerWebPreferences
++import org.jellyfin.mobile.player.source.JellyfinMediaSource
+ import org.jellyfin.mobile.player.ui.playermenuhelper.PlayerMenuHelper
+ import org.jellyfin.mobile.utils.AndroidVersion
+ import org.jellyfin.mobile.utils.BackPressInterceptor
+@@ -51,15 +62,32 @@ import org.jellyfin.mobile.utils.extensions.getParcelableCompat
+ import org.jellyfin.mobile.utils.extensions.isLandscape
+ import org.jellyfin.mobile.utils.extensions.keepScreenOn
+ import org.jellyfin.mobile.utils.toast
++import org.jellyfin.sdk.api.client.ApiClient
++import org.jellyfin.sdk.model.api.BaseItemKind
++import org.jellyfin.sdk.model.api.ImageType
+ import org.jellyfin.sdk.model.api.MediaSegmentDto
+ import org.jellyfin.sdk.model.api.MediaStream
+ import org.koin.android.ext.android.inject
++import timber.log.Timber
++import java.net.URL
++import java.util.Date
++import java.util.UUID
+ import kotlin.math.max
+ import androidx.media3.ui.R as Media3R
+ 
++/** Tanukifin: seek step for Left/Right on the progress bar */
++private const val TV_SEEK_STEP_MS = 10_000L
++
++/** Tanukifin TV: refresh interval for the "Ends at" time */
++private const val TV_INFO_UPDATE_MS = 1_000L
++
++/** Tanukifin TV: network timeout for the title logo */
++private const val TV_LOGO_TIMEOUT_MS = 5_000
++
+ @Suppress("TooManyFunctions")
+ class PlayerFragment : Fragment(), BackPressInterceptor {
+     private val appPreferences: AppPreferences by inject()
++    private val apiClient: ApiClient by inject()
+     private val viewModel: PlayerViewModel by viewModels()
+     private var _playerBinding: FragmentPlayerBinding? = null
+     private val playerBinding: FragmentPlayerBinding get() = _playerBinding!!
+@@ -77,6 +105,15 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
+     lateinit var playerLockScreenHelper: PlayerLockScreenHelper
+     lateinit var playerGestureHelper: PlayerGestureHelper
+ 
++    /** Tanukifin: true on Fire TV / Android TV devices */
++    private val isTvDevice: Boolean by lazy {
++        val pm = requireContext().packageManager
++        pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || !pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
++    }
++
++    /** Key code whose ACTION_DOWN was handled by [onTvKeyEvent], so the matching ACTION_UP is swallowed too */
++    private var swallowKeyUp = KeyEvent.KEYCODE_UNKNOWN
++
+     private val currentVideoStream: MediaStream?
+         get() = viewModel.mediaSourceOrNull?.selectedVideoStream
+ 
+@@ -127,6 +164,9 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
+ 
+             // Update title and player menus
+             toolbar.title = mediaSource.getName(requireContext())
++            if (isTvDevice) {
++                runCatching { updateTvHeader(mediaSource) }.onFailure { e -> Timber.e(e, "TV header failed") }
++            }
+             playerMenus?.onQueueItemChanged(mediaSource, viewModel.queueManager.hasNext())
+         }
+ 
+@@ -218,6 +258,230 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
+         fullscreenSwitcher.setOnClickListener {
+             toggleFullscreen()
+         }
++
++        // Tanukifin: remote friendly controls
++        if (isTvDevice) {
++            fullscreenSwitcher.isVisible = false
++            playerControlsBinding.lockScreenButton.isVisible = false
++            playerView.findViewById<DefaultTimeBar>(R.id.exo_progress)?.setKeyTimeIncrement(TV_SEEK_STEP_MS)
++            view.findViewById<View>(R.id.tv_rewind_button)?.setOnClickListener { onRewind() }
++            view.findViewById<View>(R.id.tv_fast_forward_button)?.setOnClickListener { onFastForward() }
++            view.findViewById<View>(R.id.tv_zoom_button)?.setOnClickListener { cycleTvZoom() }
++            view.post(tvInfoUpdater)
++        }
++    }
++
++    /** Tanukifin TV: keeps the "Ends at" time up to date */
++    private val tvInfoUpdater = object : Runnable {
++        override fun run() {
++            runCatching { update() }.onFailure { e -> Timber.e(e, "TV info update failed") }
++            _playerBinding?.root?.postDelayed(this, TV_INFO_UPDATE_MS)
++        }
++
++        private fun update() {
++            val binding = _playerBinding ?: return
++            val endsAt = binding.root.findViewById<TextView>(R.id.tv_ends_at)
++            val player = viewModel.playerOrNull
++            if (endsAt != null && player != null && player.duration > 0) {
++                val speed = player.playbackParameters.speed.takeIf { it > 0f } ?: 1f
++                val remainingMs = ((player.duration - player.currentPosition).coerceAtLeast(0L) / speed).toLong()
++                val endTime = DateFormat.getTimeFormat(binding.root.context).format(Date(System.currentTimeMillis() + remainingMs))
++                endsAt.text = binding.root.context.getString(R.string.tv_player_ends_at, endTime)
++            }
++        }
++    }
++
++    /** Tanukifin TV: Fit -> Zoom -> Stretch */
++    private fun cycleTvZoom() {
++        val (mode, label) = when (playerView.resizeMode) {
++            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "Zoom"
++            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL to "Stretch"
++            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT to "Fit"
++        }
++        playerView.resizeMode = mode
++        requireContext().toast(label)
++    }
++
++    /** Tanukifin TV: title logo and "S1:E2 - Episode" line, like the official TV player */
++    @Suppress("ComplexMethod")
++    private fun updateTvHeader(mediaSource: JellyfinMediaSource) {
++        val binding = _playerBinding ?: return
++        val titleView = binding.root.findViewById<TextView>(R.id.tv_title) ?: return
++        val logoView = binding.root.findViewById<ImageView>(R.id.tv_logo) ?: return
++        val item = mediaSource.item
++        val isEpisode = item?.type == BaseItemKind.EPISODE
++
++        val episodeLine: String? = if (item != null && isEpisode) {
++            val season = item.parentIndexNumber
++            val episode = item.indexNumber
++            val number = if (season != null && episode != null) "S$season:E$episode \u2014 " else ""
++            number + item.name.orEmpty()
++        } else {
++            null
++        }
++        val fallbackTitle = if (isEpisode) {
++            listOfNotNull(item?.seriesName, episodeLine).joinToString("\n")
++        } else {
++            mediaSource.getName(requireContext())
++        }
++        val logoItemId: UUID? = when {
++            item == null -> null
++            item.imageTags?.containsKey(ImageType.LOGO) == true -> item.id
++            else -> item.parentLogoItemId
++        }
++
++        logoView.setImageDrawable(null)
++        logoView.isVisible = false
++        val baseUrl = apiClient.baseUrl
++        if (logoItemId == null || baseUrl == null) {
++            titleView.text = fallbackTitle
++            titleView.isVisible = fallbackTitle.isNotEmpty()
++            return
++        }
++        titleView.text = episodeLine.orEmpty()
++        titleView.isVisible = !episodeLine.isNullOrEmpty()
++
++        val url = "${baseUrl.trimEnd('/')}/Items/$logoItemId/Images/Logo?maxHeight=200&quality=90"
++        viewLifecycleOwner.lifecycleScope.launch {
++            val bitmap = withContext(Dispatchers.IO) {
++                runCatching {
++                    val connection = URL(url).openConnection().apply {
++                        connectTimeout = TV_LOGO_TIMEOUT_MS
++                        readTimeout = TV_LOGO_TIMEOUT_MS
++                    }
++                    connection.getInputStream().use { stream -> BitmapFactory.decodeStream(stream) }
++                }.getOrNull()
++            }
++            val currentBinding = _playerBinding ?: return@launch
++            val logo = currentBinding.root.findViewById<ImageView>(R.id.tv_logo) ?: return@launch
++            val title = currentBinding.root.findViewById<TextView>(R.id.tv_title) ?: return@launch
++            if (bitmap != null) {
++                logo.setImageBitmap(bitmap)
++                logo.isVisible = true
++            } else {
++                title.text = fallbackTitle
++                title.isVisible = fallbackTitle.isNotEmpty()
++            }
++        }
++    }
++
++    /**
++     * Tanukifin: handles Fire TV remote keys.
++     *
++     * Controls hidden: OK = play/pause (or skip intro when that button is showing),
++     * Left/Right = seek back/forward, Up/Down = show controls, Menu = show controls on the subtitles button.
++     * Controls visible: the D-pad moves between buttons, Left/Right on the progress bar scrubs.
++     *
++     * @return true if the event was consumed
++     */
++    @Suppress("CyclomaticComplexMethod", "ReturnCount", "LongMethod")
++    fun onTvKeyEvent(event: KeyEvent): Boolean = runCatching { handleTvKeyEvent(event) }.getOrElse { e ->
++        Timber.e(e, "TV key handling failed")
++        false
++    }
++
++    @Suppress("CyclomaticComplexMethod", "ReturnCount", "LongMethod")
++    private fun handleTvKeyEvent(event: KeyEvent): Boolean {
++        if (_playerBinding == null || !playerView.useController) return false
++        val player = viewModel.playerOrNull ?: return false
++        val keyCode = event.keyCode
++
++        if (event.action == KeyEvent.ACTION_UP) {
++            if (keyCode == swallowKeyUp) {
++                swallowKeyUp = KeyEvent.KEYCODE_UNKNOWN
++                return true
++            }
++            return false
++        }
++        if (event.action != KeyEvent.ACTION_DOWN) return false
++
++        val firstPress = event.repeatCount == 0
++        // Treat the controls as "active" only when one of their buttons actually has remote focus
++        val controlsVisible = playerView.isControllerFullyVisible && playerView.findFocus() != null
++
++        fun consumed(): Boolean {
++            swallowKeyUp = keyCode
++            return true
++        }
++
++        when (keyCode) {
++            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> {
++                if (firstPress) {
++                    if (player.isPlaying) player.pause() else player.play()
++                    showTvControls(R.id.exo_play_pause)
++                }
++                return consumed()
++            }
++            KeyEvent.KEYCODE_MEDIA_PLAY -> {
++                if (firstPress) player.play()
++                return consumed()
++            }
++            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
++                if (firstPress) {
++                    player.pause()
++                    showTvControls(R.id.exo_play_pause)
++                }
++                return consumed()
++            }
++            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
++                viewModel.fastForward()
++                showTvControls(R.id.exo_progress)
++                return consumed()
++            }
++            KeyEvent.KEYCODE_MEDIA_REWIND -> {
++                viewModel.rewind()
++                showTvControls(R.id.exo_progress)
++                return consumed()
++            }
++            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
++                if (controlsVisible) return false // let the focused button handle it
++                if (firstPress) {
++                    val skipButton = playerBinding.skipSegmentButton
++                    if (skipButton.isShown) {
++                        skipButton.performClick()
++                    } else {
++                        if (player.isPlaying) player.pause() else player.play()
++                        showTvControls(R.id.exo_play_pause)
++                    }
++                }
++                return consumed()
++            }
++            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
++                if (controlsVisible) return false
++                if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) viewModel.fastForward() else viewModel.rewind()
++                showTvControls(R.id.exo_progress)
++                return consumed()
++            }
++            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
++                if (controlsVisible) return false
++                if (firstPress) showTvControls(R.id.exo_play_pause)
++                return consumed()
++            }
++            KeyEvent.KEYCODE_MENU -> {
++                if (firstPress) showTvControls(R.id.subtitles_button)
++                return consumed()
++            }
++        }
++        return false
++    }
++
++    private fun showTvControls(focusViewId: Int) {
++        playerView.showController()
++        playerView.post {
++            val binding = _playerBinding ?: return@post
++            val target = binding.playerView.findViewById<View>(focusViewId)?.takeIf { view -> view.isShown }
++                ?: binding.playerView.findViewById<View>(R.id.exo_play_pause)
++            target?.requestFocus()
++        }
++    }
++
++    override fun onInterceptBackPressed(): Boolean {
++        // Tanukifin: first Back hides the controls, second Back leaves the player
++        if (isTvDevice && _playerBinding != null && playerView.isControllerFullyVisible) {
++            playerView.hideController()
++            return true
++        }
++        return false
+     }
+ 
+     override fun onStart() {
+@@ -367,6 +631,11 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
+     }
+ 
+     fun onUserLeaveHint() {
++        // Tanukifin: no picture-in-picture on TV, just pause when Home is pressed
++        if (isTvDevice) {
++            viewModel.pause()
++            return
++        }
+         if (AndroidVersion.isAtLeastN && viewModel.playerOrNull != null) {
+             requireActivity().enterPictureInPicture()
+         }
+@@ -424,6 +693,8 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
+ 
+     override fun onDestroyView() {
+         super.onDestroyView()
++        // Tanukifin TV: stop the "Ends at" updates
++        _playerBinding?.root?.removeCallbacks(tvInfoUpdater)
+         // Detach player from PlayerView
+         playerView.player = null
+ 
+diff --git a/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerMenus.kt b/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerMenus.kt
+index af67f76b4b9fc99af8af8b4bb49a31d7a9419aea..9811dd07258c7a903a26287eeef23135856cdea7 100644
+--- a/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerMenus.kt
++++ b/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerMenus.kt
+@@ -223,6 +223,12 @@ class PlayerMenus(
+     }
+ 
+     private fun updateLayoutConstraints(hasChapters: Boolean) {
++        // Tanukifin: the TV layout places these buttons in a simple row, only toggle the chapter buttons there
++        if (previousButton.layoutParams !is ConstraintLayout.LayoutParams) {
++            previousChapterButton.isVisible = hasChapters
++            nextChapterButton.isVisible = hasChapters
++            return
++        }
+         if (hasChapters) {
+             previousButton.updateLayoutParams<ConstraintLayout.LayoutParams> { endToStart = previousChapterButton.id }
+             nextButton.updateLayoutParams<ConstraintLayout.LayoutParams> { startToEnd = nextChapterButton.id }
+diff --git a/app/src/main/java/org/jellyfin/mobile/utils/Constants.kt b/app/src/main/java/org/jellyfin/mobile/utils/Constants.kt
+index 85a2de92fab396f553dfdd621c088e680c30b89a..d47625794d87a409e0b64515fe11833d1ebca01e 100644
+--- a/app/src/main/java/org/jellyfin/mobile/utils/Constants.kt
++++ b/app/src/main/java/org/jellyfin/mobile/utils/Constants.kt
+@@ -8,7 +8,7 @@ import org.jellyfin.mobile.BuildConfig
+ @Suppress("MagicNumber")
+ object Constants {
+     // App Info
+-    const val APP_INFO_NAME = "Jellyfin for Android"
++    const val APP_INFO_NAME = "Tanukifin"
+     const val APP_INFO_VERSION: String = BuildConfig.VERSION_NAME
+ 
+     // Webapp constants
+diff --git a/app/src/main/java/org/jellyfin/mobile/utils/CrashReporter.kt b/app/src/main/java/org/jellyfin/mobile/utils/CrashReporter.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..b25b5e868edcb068e6384579f1cddb060fb325a7
+--- /dev/null
++++ b/app/src/main/java/org/jellyfin/mobile/utils/CrashReporter.kt
+@@ -0,0 +1,55 @@
++package org.jellyfin.mobile.utils
++
++import android.app.Activity
++import android.content.Context
++import android.os.Build
++import androidx.appcompat.app.AlertDialog
++import org.jellyfin.mobile.BuildConfig
++import java.io.File
++import java.io.PrintWriter
++import java.io.StringWriter
++
++/**
++ * Tanukifin: saves the details of a crash, and shows them on the next app start,
++ * so users can report exactly what went wrong (Fire TV has no way to see app errors).
++ */
++object CrashReporter {
++    private const val FILE_NAME = "last_crash.txt"
++    private const val MAX_LENGTH = 6000
++
++    fun install(context: Context) {
++        val appContext = context.applicationContext
++        val previous = Thread.getDefaultUncaughtExceptionHandler()
++        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
++            runCatching {
++                val trace = StringWriter().also { writer -> throwable.printStackTrace(PrintWriter(writer)) }.toString()
++                val report = buildString {
++                    appendLine("Tanukifin ${BuildConfig.VERSION_NAME}")
++                    appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})")
++                    appendLine("Thread: ${thread.name}")
++                    appendLine()
++                    append(trace)
++                }
++                File(appContext.filesDir, FILE_NAME).writeText(report.take(MAX_LENGTH))
++            }
++            previous?.uncaughtException(thread, throwable)
++        }
++    }
++
++    fun showLastCrashIfAny(activity: Activity) {
++        val file = File(activity.filesDir, FILE_NAME)
++        if (!file.exists()) return
++        val report = runCatching { file.readText() }.getOrNull()
++        file.delete()
++        if (report.isNullOrBlank()) return
++
++        AlertDialog.Builder(activity)
++            .setTitle("Tanukifin closed unexpectedly")
++            .setMessage(
++                "Please take a photo of this screen and report it at\n" +
++                    "github.com/hansonds/Tanukifin/issues\n\n" + report,
++            )
++            .setPositiveButton(android.R.string.ok, null)
++            .show()
++    }
++}
+diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebChromeClient.kt b/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebChromeClient.kt
+index dac4e0db1ea3f0fd6f87641febe7b12c6a2f3129..71d382a0cd803fbc8fa1dd0d13f739d4beaa8251 100644
+--- a/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebChromeClient.kt
++++ b/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebChromeClient.kt
+@@ -1,6 +1,5 @@
+ package org.jellyfin.mobile.webapp
+ 
+-import android.content.Context
+ import android.content.Intent
+ import android.net.Uri
+ import android.os.Message
+@@ -8,10 +7,7 @@ import android.util.Log
+ import android.webkit.ConsoleMessage
+ import android.webkit.ValueCallback
+ import android.webkit.WebChromeClient
+-import android.webkit.WebResourceRequest
+ import android.webkit.WebView
+-import androidx.core.net.toUri
+-import androidx.webkit.WebViewClientCompat
+ import timber.log.Timber
+ 
+ class JellyfinWebChromeClient(
+@@ -37,34 +33,8 @@ class JellyfinWebChromeClient(
+         return true
+     }
+ 
+-    override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
+-        val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
+-
+-        val windowWebView = WebView(view.context)
+-        windowWebView.webViewClient = object : WebViewClientCompat() {
+-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+-                return openExternalUrl(view.context, request.url.toString())
+-            }
+-
+-            @Deprecated("Deprecated in Android")
+-            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+-                return openExternalUrl(view.context, url)
+-            }
+-        }
+-        transport.webView = windowWebView
+-        resultMsg.sendToTarget()
+-
+-        return true
+-    }
+-
+-    private fun openExternalUrl(context: Context, url: String): Boolean {
+-        // Some web views can try to open empty popups, we cannot infer an URL from those easily so ignore them
+-        if (url == "about:blank") return false
+-
+-        val intent = Intent(Intent.ACTION_VIEW, url.toUri())
+-        context.startActivity(intent)
+-        return true
+-    }
++    // Popups cannot inherit the trusted server's native privileges or launch intents.
++    override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean = false
+ 
+     override fun onShowFileChooser(
+         webView: WebView,
+diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebViewClient.kt b/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebViewClient.kt
+index a37c2109d3ec7ea90c4f23b1bab326f07ba74a15..160c32e1fe520684be98e012cf00a3d8ddf91187 100644
+--- a/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebViewClient.kt
++++ b/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebViewClient.kt
+@@ -1,5 +1,8 @@
+ package org.jellyfin.mobile.webapp
+ 
++import android.content.ActivityNotFoundException
++import android.content.Intent
++import android.net.Uri
+ import android.net.http.SslError
+ import android.webkit.SslErrorHandler
+ import android.webkit.WebResourceRequest
+@@ -40,8 +43,45 @@ abstract class JellyfinWebViewClient(
+ 
+     abstract fun onErrorReceived()
+ 
++    private val origin = requireNotNull(ServerOrigin.parse(server.hostname)) { "Invalid server origin" }
++
++    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
++        if (origin.allows(request.url.toString())) return false
++        // No automatic external launches from redirects or embedded frames.
++        if (request.isForMainFrame && request.hasGesture()) openOutside(view, request.url)
++        return true
++    }
++
++    @Deprecated("Deprecated in Android")
++    override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean = !origin.allows(url)
++
++    private fun openOutside(view: WebView, uri: Uri) {
++        if (ServerOrigin.parse(uri.toString()) == null) return
++        try {
++            view.context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
++        } catch (_: ActivityNotFoundException) {
++            Timber.i("No browser available for external link")
++        }
++    }
++
++    override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
++        if (!origin.allows(url)) {
++            view.stopLoading()
++            onErrorReceived()
++            return
++        }
++        super.onPageStarted(view, url, favicon)
++    }
++
+     override fun shouldInterceptRequest(webView: WebView, request: WebResourceRequest): WebResourceResponse? {
+         val url = request.url
++        if (!origin.allows(url.toString())) {
++            // Keep remote CSS/images usable, but never inject native scripts or read
++            // credentials in response to a foreign origin's similarly named paths.
++            return if (request.isForMainFrame) {
++                WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
++            } else null
++        }
+         val path = url.path?.lowercase(Locale.ROOT) ?: return null
+         return when {
+             path.matches(Constants.MAIN_BUNDLE_PATH_REGEX) && "deferred" !in url.query.orEmpty() -> {
+@@ -54,6 +94,7 @@ abstract class JellyfinWebViewClient(
+             path.endsWith(Constants.CAST_SDK_PATH) -> assetsPathHandler.inject("native/chrome.cast.js")
+             path.endsWith(Constants.SESSION_CAPABILITIES_PATH) -> {
+                 coroutineScope.launch {
++                    if (!origin.allows(webView.url.orEmpty())) return@launch
+                     val credentials = suspendCoroutine { continuation ->
+                         webView.evaluateJavascript(
+                             "JSON.parse(window.localStorage.getItem('jellyfin_credentials'))",
+@@ -78,6 +119,7 @@ abstract class JellyfinWebViewClient(
+                         return@launch
+                     }
+ 
++                    if (!origin.allows(webView.url.orEmpty())) return@launch
+                     mainViewModel.setupUser(server.id, user, token)
+                     webView.initLocale(user)
+                 }
+diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/OriginScopedBridge.kt b/app/src/main/java/org/jellyfin/mobile/webapp/OriginScopedBridge.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..d52ffd8fe09a51f87ec37fd6ea5e7ac67e3f6531
+--- /dev/null
++++ b/app/src/main/java/org/jellyfin/mobile/webapp/OriginScopedBridge.kt
+@@ -0,0 +1,107 @@
++package org.jellyfin.mobile.webapp
++
++import android.webkit.WebView
++import androidx.webkit.ScriptHandler
++import androidx.webkit.WebMessageCompat
++import androidx.webkit.WebViewCompat
++import androidx.webkit.WebViewFeature
++import org.jellyfin.mobile.bridge.ExternalPlayer
++import org.jellyfin.mobile.bridge.MediaSegments
++import org.jellyfin.mobile.bridge.NativeInterface
++import org.jellyfin.mobile.bridge.NativePlayer
++import org.json.JSONArray
++import org.json.JSONObject
++import timber.log.Timber
++
++/** No addJavascriptInterface fallback: embedded/foreign frames never receive native privileges. */
++internal class OriginScopedBridge(
++    private val origin: ServerOrigin,
++    private val native: NativeInterface,
++    private val player: NativePlayer,
++    private val external: ExternalPlayer,
++    private val segments: MediaSegments,
++) {
++    private var script: ScriptHandler? = null
++
++    fun install(view: WebView): Boolean {
++        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) ||
++            !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
++        ) return false
++        WebViewCompat.addWebMessageListener(view, "TanukifinBridge", setOf(origin.rule)) {
++                webView, message, sourceOrigin, isMainFrame, _ ->
++            if (!isMainFrame || !origin.allows(sourceOrigin.toString()) ||
++                !origin.allows(webView.url.orEmpty()) || message.type != WebMessageCompat.TYPE_STRING
++            ) return@addWebMessageListener
++            val data = message.data ?: return@addWebMessageListener
++            if (data.length > MAX_MESSAGE_LENGTH) return@addWebMessageListener
++            runCatching {
++                val call = JSONObject(data)
++                dispatch(call.getString("method"), call.getJSONArray("args"))
++            }.onFailure {
++                // Never log message bodies, URLs or exception text containing caller input.
++                Timber.w("Rejected Tanukifin bridge command")
++            }
++        }
++        val bootstrap = view.context.assets.open("native/tanukifin-bridge.js").bufferedReader().use { it.readText() }
++        script = WebViewCompat.addDocumentStartJavaScript(view, "($bootstrap)(${configuration()});", setOf(origin.rule))
++        return true
++    }
++
++    private fun configuration(): JSONObject = JSONObject()
++            .put("origin", origin.rule)
++            .put("deviceInformation", native.getDeviceInformation())
++            .put("codecCapabilities", native.getCodecCapabilities())
++            .put("chromecast", native.hasChromecast())
++            .put("nativePlayer", player.isEnabled())
++            .put("externalPlayer", external.isEnabled())
++            .put("segmentTypes", segments.getSupportedSegmentTypes())
++
++    fun refresh(view: WebView) {
++        if (origin.allows(view.url.orEmpty())) {
++            view.evaluateJavascript(
++                "window.dispatchEvent(new CustomEvent('tanukifin-state', { detail: ${configuration()} }));",
++                null,
++            )
++        }
++    }
++
++    fun close(view: WebView) {
++        script?.remove()
++        script = null
++        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
++            WebViewCompat.removeWebMessageListener(view, "TanukifinBridge")
++        }
++    }
++
++    private fun dispatch(method: String, args: JSONArray) {
++        // Explicit allowlist; arbitrary Java/Kotlin method invocation is never supported.
++        when (method) {
++            "NativeInterface.enableFullscreen" -> native.enableFullscreen()
++            "NativeInterface.disableFullscreen" -> native.disableFullscreen()
++            "NativeInterface.updateMediaSession" -> native.updateMediaSession(args.getString(0))
++            "NativeInterface.hideMediaSession" -> native.hideMediaSession()
++            "NativeInterface.updateVolumeLevel" -> native.updateVolumeLevel(args.getInt(0))
++            "NativeInterface.downloadFiles" -> native.downloadFiles(args.getString(0))
++            "NativeInterface.openDownloadManager" -> native.openDownloadManager()
++            "NativeInterface.openClientSettings" -> native.openClientSettings()
++            "NativeInterface.openServerSelection" -> native.openServerSelection()
++            "NativeInterface.exitApp" -> native.exitApp()
++            "NativeInterface.execCast" -> native.execCast(args.getString(0), args.getString(1))
++            "NativePlayer.loadPlayer" -> player.loadPlayer(args.getString(0), args.getString(1))
++            "NativePlayer.pausePlayer" -> player.pausePlayer()
++            "NativePlayer.resumePlayer" -> player.resumePlayer()
++            "NativePlayer.stopPlayer" -> player.stopPlayer()
++            "NativePlayer.destroyPlayer" -> player.destroyPlayer()
++            "NativePlayer.seekTicks" -> player.seekTicks(args.getLong(0))
++            "NativePlayer.seekMs" -> player.seekMs(args.getLong(0))
++            "NativePlayer.setVolume" -> player.setVolume(args.getInt(0))
++            "ExternalPlayer.initPlayer" -> external.initPlayer(args.getString(0))
++            "MediaSegments.setSegmentTypeAction" -> segments.setSegmentTypeAction(args.getString(0), args.getString(1))
++            else -> error("Unsupported bridge command")
++        }
++    }
++
++    companion object {
++        private const val MAX_MESSAGE_LENGTH = 524288
++    }
++}
+diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/ServerOrigin.java b/app/src/main/java/org/jellyfin/mobile/webapp/ServerOrigin.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..441e8de532ff05a7850776b6a1350da0614d0a80
+--- /dev/null
++++ b/app/src/main/java/org/jellyfin/mobile/webapp/ServerOrigin.java
+@@ -0,0 +1,55 @@
++package org.jellyfin.mobile.webapp;
++
++import java.net.URI;
++import java.util.Locale;
++import java.util.Objects;
++
++/** Exact HTTP(S) origin. Reject ambiguous/user-info URLs before comparing. */
++final class ServerOrigin {
++    private final String scheme;
++    private final String host;
++    private final int port;
++
++    private ServerOrigin(String scheme, String host, int port) {
++        this.scheme = scheme;
++        this.host = host;
++        this.port = port;
++    }
++
++    public String getRule() { return scheme + "://" + host + ":" + port; }
++
++    public boolean allows(String value) { return equals(parse(value)); }
++
++    public static ServerOrigin parse(String value) {
++        if (value == null) return null;
++        for (int i = 0; i < value.length(); i++) {
++            char c = value.charAt(i);
++            if (c <= ' ' || c == '\\' || c == 127) return null;
++        }
++        try {
++            URI uri = new URI(value);
++            String scheme = uri.getScheme();
++            if (scheme == null) return null;
++            scheme = scheme.toLowerCase(Locale.ROOT);
++            if (!scheme.equals("http") && !scheme.equals("https")) return null;
++            if (uri.isOpaque() || uri.getRawUserInfo() != null) return null;
++            String host = uri.getHost();
++            if (host == null || host.isEmpty() || host.contains("%")) return null;
++            host = host.toLowerCase(Locale.ROOT);
++            int port = uri.getPort();
++            if (port == -1) port = scheme.equals("https") ? 443 : 80;
++            if (port < 1 || port > 65535) return null;
++            return new ServerOrigin(scheme, host, port);
++        } catch (java.net.URISyntaxException e) {
++            return null;
++        }
++    }
++
++    @Override public boolean equals(Object other) {
++        if (!(other instanceof ServerOrigin)) return false;
++        ServerOrigin value = (ServerOrigin) other;
++        return scheme.equals(value.scheme) && host.equals(value.host) && port == value.port;
++    }
++
++    @Override public int hashCode() { return Objects.hash(scheme, host, port); }
++}
+diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt b/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt
+index 2d4dcc5a3e963de79080fdadf1565c5a60e895bc..936b49fa4f65c655759837b48157bc164f0fcfe6 100644
+--- a/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt
++++ b/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt
+@@ -44,7 +44,6 @@ import org.jellyfin.mobile.utils.extensions.getParcelableCompat
+ import org.jellyfin.mobile.utils.extensions.replaceFragment
+ import org.jellyfin.mobile.utils.fadeIn
+ import org.jellyfin.mobile.utils.isOutdated
+-import org.jellyfin.mobile.utils.requestNoBatteryOptimizations
+ import org.jellyfin.mobile.utils.runOnUiThread
+ import org.koin.android.ext.android.inject
+ import org.koin.androidx.viewmodel.ext.android.activityViewModel
+@@ -61,7 +60,9 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
+ 
+     lateinit var server: ServerEntity
+         private set
++    private var originBridge: OriginScopedBridge? = null
+     private var connected = false
++    private var pointerMode = false
+     private val timeoutRunnable = Runnable {
+         handleError()
+     }
+@@ -99,11 +100,14 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
+                 webView.removeCallbacks(timeoutRunnable)
+                 webView.removeCallbacks(showLoadingContainerRunnable)
+                 connected = true
++                pointerMode = false
+                 runOnUiThread {
+                     webViewBinding.loadingContainer.isVisible = false
+                     webView.fadeIn()
++                    // Tanukifin: give the web interface remote focus right away
++                    webView.requestFocus()
+                 }
+-                requestNoBatteryOptimizations(webViewBinding.root)
++                // Tanukifin: no battery-optimisation snackbar (it cannot be dismissed with a remote)
+             }
+ 
+             override fun onErrorReceived() {
+@@ -163,16 +167,47 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
+         // Process JS functions called from other components (e.g. the PlayerActivity)
+         lifecycleScope.launch {
+             for (function in webappFunctionChannel) {
+-                webView.evaluateJavascript(function, null)
++                if (ServerOrigin.parse(server.hostname)?.allows(webView.url.orEmpty()) == true) {
++                    webView.evaluateJavascript(function, null)
++                }
+             }
+         }
+     }
+ 
++    override fun onResume() {
++        super.onResume()
++        webViewBinding?.webView?.let { originBridge?.refresh(it) }
++    }
++
+     override fun onInterceptBackPressed(): Boolean {
++        if (pointerMode) {
++            setPointerMode(false)
++            return true
++        }
+         return connected && webappFunctionChannel.goBack()
+     }
+ 
++    /**
++     * Tanukifin: toggles the on-screen pointer (bound to the remote's Menu button).
++     */
++    fun togglePointerMode() {
++        if (!connected) return
++        setPointerMode(!pointerMode)
++    }
++
++    private fun setPointerMode(enabled: Boolean) {
++        val webView = webViewBinding?.webView ?: return
++        pointerMode = enabled
++        webView.evaluateJavascript("window.__tanuki && window.__tanuki.setPointer($enabled)", null)
++    }
++
+     override fun onDestroyView() {
++        webViewBinding?.webView?.let { view ->
++            originBridge?.close(view)
++            originBridge = null
++            view.stopLoading()
++            view.destroy()
++        }
+         super.onDestroyView()
+         webViewBinding = null
+     }
+@@ -185,10 +220,24 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
+         webViewClient = jellyfinWebViewClient
+         webChromeClient = JellyfinWebChromeClient(this@WebViewFragment)
+         settings.applyDefault()
+-        addJavascriptInterface(NativeInterface(requireContext()), "NativeInterface")
+-        addJavascriptInterface(nativePlayer, "NativePlayer")
+-        addJavascriptInterface(externalPlayer, "ExternalPlayer")
+-        addJavascriptInterface(mediaSegments, "MediaSegments")
++        settings.allowFileAccess = false
++        settings.allowContentAccess = false
++        settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
++        val origin = ServerOrigin.parse(server.hostname)
++        if (origin == null) {
++            handleError()
++            return
++        }
++        val bridge = OriginScopedBridge(origin, NativeInterface(requireContext()), nativePlayer, externalPlayer, mediaSegments)
++        if (!bridge.install(this)) {
++            AlertDialog.Builder(requireContext())
++                .setTitle("WebView update required")
++                .setMessage("Tanukifin requires a newer system WebView with origin-scoped messaging. Update Fire OS or Android System WebView before connecting.")
++                .setPositiveButton(android.R.string.ok) { _, _ -> onSelectServer(error = false) }
++                .show()
++            return
++        }
++        originBridge = bridge
+ 
+         loadUrl("${server.hostname.trimEnd('/')}/")
+         postDelayed(timeoutRunnable, Constants.INITIAL_CONNECTION_TIMEOUT)
+diff --git a/app/src/main/res/drawable/app_logo.xml b/app/src/main/res/drawable/app_logo.xml
+index 3aeaa90340d8d69b2d56c5f3d52927673271c65a..38ac873a690942f752f611be2b7e322555513e66 100644
+--- a/app/src/main/res/drawable/app_logo.xml
++++ b/app/src/main/res/drawable/app_logo.xml
+@@ -1,46 +1,4 @@
+-<vector xmlns:android="http://schemas.android.com/apk/res/android"
+-    xmlns:aapt="http://schemas.android.com/aapt"
+-    android:width="252dp"
+-    android:height="72dp"
+-    android:viewportWidth="252"
+-    android:viewportHeight="72">
+-    <path android:pathData="M24.71,49.16c-1.55,-3.12 8.63,-21.57 11.79,-21.57 3.17,0 13.32,18.49 11.79,21.57 -1.53,3.08 -22.02,3.12 -23.58,0z">
+-        <aapt:attr name="android:fillColor">
+-            <gradient
+-                android:endX="72.5"
+-                android:endY="63"
+-                android:startX="12.5"
+-                android:startY="30"
+-                android:tileMode="clamp">
+-                <item
+-                    android:color="#AA5CC3"
+-                    android:offset="0" />
+-                <item
+-                    android:color="#00A4DC"
+-                    android:offset="1" />
+-            </gradient>
+-        </aapt:attr>
+-    </path>
+-    <path
+-        android:fillType="evenOdd"
+-        android:pathData="M0.98,65C-3.69,55.61 26.98,0 36.5,0c9.53,0 40.15,55.71 35.53,65s-66.37,9.39 -71.04,0m12.26,-8.15c3.07,6.15 43.52,6.08 46.55,0 3.03,-6.09 -17.03,-42.59 -23.27,-42.59S10.17,50.69 13.23,56.85z">
+-        <aapt:attr name="android:fillColor">
+-            <gradient
+-                android:endX="72.5"
+-                android:endY="63"
+-                android:startX="12.5"
+-                android:startY="30"
+-                android:tileMode="clamp">
+-                <item
+-                    android:color="#AA5CC3"
+-                    android:offset="0" />
+-                <item
+-                    android:color="#00A4DC"
+-                    android:offset="1" />
+-            </gradient>
+-        </aapt:attr>
+-    </path>
+-    <path
+-        android:fillColor="#FFF"
+-        android:pathData="M143.24,14.25c-0.28,0 -0.42,0 -0.52,0.05a0.5,0.5 0,0 0,-0.22 0.22c-0.05,0.11 -0.05,0.25 -0.05,0.53L142.44,55.2c0,0.28 0,0.42 0.05,0.53 0.05,0.09 0.13,0.17 0.22,0.22 0.11,0.05 0.25,0.05 0.53,0.05h5.63c0.28,0 0.42,-0 0.53,-0.05a0.5,0.5 0,0 0,0.22 -0.22c0.05,-0.11 0.05,-0.25 0.05,-0.53L149.67,15.06c0,-0.28 0,-0.42 -0.05,-0.53a0.5,0.5 0,0 0,-0.22 -0.22c-0.11,-0.05 -0.25,-0.05 -0.53,-0.05zM154.86,14.25c-0.28,0 -0.42,0 -0.53,0.05a0.5,0.5 0,0 0,-0.22 0.22c-0.05,0.11 -0.05,0.25 -0.05,0.53L154.06,55.2c0,0.28 0,0.42 0.05,0.53 0.05,0.09 0.12,0.17 0.22,0.22 0.11,0.05 0.25,0.05 0.53,0.05h5.62c0.28,0 0.42,-0 0.53,-0.05a0.5,0.5 0,0 0,0.22 -0.22c0.05,-0.11 0.05,-0.25 0.05,-0.53L161.28,15.06c0,-0.28 0,-0.42 -0.05,-0.53a0.5,0.5 0,0 0,-0.22 -0.22c-0.11,-0.05 -0.25,-0.05 -0.53,-0.05zM208.55,14.25q-5.18,0 -8.27,2.81 -3.09,2.81 -3.09,7.94L197.19,26h-10.17c-0.3,0 -0.45,0 -0.58,0.05a0.75,0.75 0,0 0,-0.29 0.21c-0.09,0.1 -0.14,0.24 -0.25,0.52l-7.43,19.9 -7.48,-19.9c-0.1,-0.28 -0.16,-0.42 -0.25,-0.52a0.76,0.76 0,0 0,-0.3 -0.2c-0.13,-0.05 -0.28,-0.05 -0.58,-0.05h-5.77c-0.39,0 -0.59,0 -0.72,0.08a0.5,0.5 0,0 0,-0.21 0.31c-0.03,0.15 0.04,0.33 0.19,0.7L174.78,56l-0.66,1.6q-0.88,1.87 -2.04,3.03 -1.1,1.16 -3.58,1.16 -0.88,0 -1.88,-0.17a13,13 0,0 1,-0.73 -0.1c-0.39,-0.06 -0.58,-0.1 -0.71,-0.05a0.47,0.47 0,0 0,-0.26 0.22c-0.07,0.12 -0.07,0.3 -0.07,0.66v4.33c0,0.24 0,0.37 0.05,0.48a0.74,0.74 0,0 0,0.19 0.27c0.09,0.08 0.19,0.12 0.39,0.18a8,8 0,0 0,1.47 0.35q1.16,0.22 2.37,0.22 4.24,0 7.06,-2.43 2.87,-2.37 4.58,-6.73l10.52,-26.58h5.72v22.75c0,0.28 0,0.42 0.05,0.53a0.5,0.5 0,0 0,0.22 0.22c0.11,0.05 0.25,0.05 0.52,0.05h5.63c0.28,0 0.42,-0 0.53,-0.05a0.5,0.5 0,0 0,0.22 -0.22c0.05,-0.11 0.05,-0.25 0.05,-0.53L204.42,32.45h5.87c0.28,0 0.42,0 0.52,-0.05a0.5,0.5 0,0 0,0.22 -0.22c0.05,-0.11 0.05,-0.25 0.05,-0.53L211.09,26.8c0,-0.28 0,-0.42 -0.05,-0.53a0.5,0.5 0,0 0,-0.22 -0.22c-0.11,-0.05 -0.25,-0.05 -0.52,-0.05h-5.87v-0.99q0,-2.26 1.32,-3.31 1.38,-1.1 3.75,-1.1 0.46,0 0.94,0.05c0.34,0.03 0.52,0.05 0.63,-0a0.48,0.48 0,0 0,0.24 -0.22c0.06,-0.11 0.06,-0.28 0.06,-0.6v-4.43c0,-0.3 0,-0.46 -0.06,-0.59a0.7,0.7 0,0 0,-0.25 -0.29c-0.12,-0.08 -0.26,-0.1 -0.54,-0.13a14,14 0,0 0,-1.97 -0.13zM99.46,14.92c-0.28,0 -0.42,0 -0.53,0.05a0.5,0.5 0,0 0,-0.22 0.22c-0.05,0.11 -0.05,0.25 -0.05,0.52v27.82q0,2.54 -1.6,4.08 -1.54,1.49 -4.19,1.49h-1.57c-0.28,0 -0.42,0 -0.53,0.05a0.5,0.5 0,0 0,-0.22 0.22c-0.05,0.11 -0.05,0.25 -0.05,0.53v5.29c0,0.28 0,0.42 0.05,0.53a0.5,0.5 0,0 0,0.22 0.22c0.11,0.05 0.25,0.05 0.53,0.05h1.57q4.08,0 7.06,-1.6 3.03,-1.6 4.63,-4.47 1.65,-2.87 1.66,-6.67L106.22,15.72c0,-0.28 -0,-0.42 -0.06,-0.53a0.5,0.5 0,0 0,-0.22 -0.22c-0.11,-0.05 -0.25,-0.05 -0.53,-0.05zM213.99,14.92c-0.16,0 -0.26,0.01 -0.34,0.05a0.5,0.5 0,0 0,-0.22 0.22c-0.05,0.11 -0.05,0.25 -0.05,0.52v6.12c0,0.28 0,0.42 0.05,0.53a0.5,0.5 0,0 0,0.22 0.22c0.11,0.05 0.25,0.05 0.53,0.05h5.63c0.28,0 0.42,0 0.52,-0.05a0.5,0.5 0,0 0,0.22 -0.22c0.05,-0.11 0.05,-0.25 0.05,-0.53v-6.12c0,-0.28 0,-0.42 -0.05,-0.52a0.5,0.5 0,0 0,-0.22 -0.22c-0.11,-0.05 -0.25,-0.05 -0.52,-0.05zM124.56,25.34q-4.19,0 -7.61,2.04 -3.36,2.04 -5.35,5.57 -1.93,3.47 -1.93,8 0,4.36 1.93,7.94c1.93,3.59 3.09,4.28 5.4,5.68q3.47,2.1 8.11,2.1 4.58,0 8,-2.04 3.09,-1.87 4.53,-4.61c0.11,-0.22 0.17,-0.33 0.17,-0.45a0.53,0.53 0,0 0,-0.1 -0.3c-0.07,-0.1 -0.19,-0.16 -0.43,-0.27l-4.27,-2.09c-0.31,-0.15 -0.47,-0.23 -0.61,-0.24a0.6,0.6 0,0 0,-0.35 0.08c-0.12,0.07 -0.24,0.22 -0.48,0.54a8.2,8.2 0,0 1,-2.21 1.99q-1.71,1.05 -4.19,1.05 -3.26,0 -5.46,-1.98 -2.2,-1.99 -2.54,-5.3h21.06c0.2,0 0.3,0 0.39,-0.04a0.55,0.55 0,0 0,0.21 -0.17c0.06,-0.08 0.08,-0.17 0.12,-0.33q0.09,-0.39 0.12,-0.84 0.11,-0.83 0.11,-1.65 0,-4.03 -1.71,-7.33t-4.96,-5.3q-3.26,-2.04 -7.94,-2.04m115.64,0q-2.81,0 -5.07,1.1a7.9,7.9 0,0 0,-3.42 3.25L231.71,26.8c0,-0.28 0,-0.42 -0.05,-0.53a0.5,0.5 0,0 0,-0.22 -0.22c-0.11,-0.05 -0.25,-0.05 -0.53,-0.05h-5.18c-0.28,0 -0.42,0 -0.53,0.05a0.5,0.5 0,0 0,-0.22 0.22c-0.05,0.11 -0.05,0.25 -0.05,0.53v28.4c0,0.28 0,0.42 0.05,0.53a0.5,0.5 0,0 0,0.22 0.22c0.11,0.05 0.25,0.05 0.53,0.05h5.62c0.28,0 0.42,0 0.53,-0.05a0.5,0.5 0,0 0,0.22 -0.22c0.05,-0.11 0.05,-0.25 0.05,-0.53v-16.79q0,-2.92 1.65,-4.69 1.71,-1.77 4.41,-1.77 2.7,0 4.36,1.77 1.71,1.71 1.71,4.69v16.79c0,0.28 -0,0.42 0.05,0.53a0.5,0.5 0,0 0,0.22 0.22c0.11,0.05 0.25,0.05 0.53,0.05h5.63c0.28,0 0.42,0 0.53,-0.05a0.5,0.5 0,0 0,0.22 -0.22c0.05,-0.11 0.06,-0.25 0.06,-0.53v-18.5q-0,-3.37 -1.44,-5.9a10.1,10.1 0,0 0,-4.03 -4.03q-2.54,-1.43 -5.85,-1.43M214.18,26c-0.28,0 -0.42,0 -0.53,0.05a0.5,0.5 0,0 0,-0.22 0.22c-0.05,0.11 -0.05,0.25 -0.05,0.53v28.4c0,0.28 0,0.42 0.05,0.53a0.5,0.5 0,0 0,0.22 0.22c0.11,0.05 0.25,0.05 0.53,0.05h5.63c0.28,0 0.42,0 0.52,-0.05a0.5,0.5 0,0 0,0.22 -0.22c0.05,-0.11 0.05,-0.25 0.05,-0.53L220.61,26.8c0,-0.28 0,-0.42 -0.05,-0.53a0.5,0.5 0,0 0,-0.22 -0.22c-0.11,-0.05 -0.25,-0.05 -0.53,-0.05zM124.56,31.3q2.87,0 4.74,1.76 1.93,1.71 2.15,4.47h-14.12q0.61,-2.98 2.54,-4.58 1.99,-1.65 4.69,-1.65" />
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
++    <path android:fillColor="#141A2E" android:pathData="M0,0h108v108h-108z" />
++    <path android:fillColor="#A99AFF" android:pathData="M25,28h58v13h-22v40h-14v-40h-22z" />
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_launcher_foreground.xml b/app/src/main/res/drawable/ic_launcher_foreground.xml
+index 456a8779241dd4c7c0d30796a009e32b13941d78..38ac873a690942f752f611be2b7e322555513e66 100644
+--- a/app/src/main/res/drawable/ic_launcher_foreground.xml
++++ b/app/src/main/res/drawable/ic_launcher_foreground.xml
+@@ -1,19 +1,4 @@
+-<vector xmlns:android="http://schemas.android.com/apk/res/android"
+-    xmlns:aapt="http://schemas.android.com/aapt"
+-    android:width="108dp"
+-    android:height="108dp"
+-    android:viewportWidth="1024"
+-    android:viewportHeight="1024">
+-    <path android:pathData="m512 284.789466c-57.344 0-241.850182 334.568734-213.736727 391.074914 28.113454 56.50618 399.639277 55.85454 427.473457 0 27.83418-55.85455-156.39273-391.074914-213.73673-391.074914zm140.10182 342.109094c-18.24582 36.58473-261.67855 37.05018-280.11055 0-18.431997-37.05018 102.49309-256.27928 140.00873-256.27928s158.34764 219.60146 140.10182 256.27928zm-140.10182-176.128c-18.99055 0-80.24436 111.05745-70.93527 129.76873 9.30909 18.71127 132.65454 18.52509 141.87054 0s-51.85163-129.76873-70.93527-129.76873z">
+-        <aapt:attr name="android:fillColor">
+-            <gradient
+-                android:endColor="#00A4DC"
+-                android:endX="752"
+-                android:endY="692"
+-                android:startColor="#AA5CC3"
+-                android:startX="366"
+-                android:startY="469"
+-                android:type="linear" />
+-        </aapt:attr>
+-    </path>
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
++    <path android:fillColor="#141A2E" android:pathData="M0,0h108v108h-108z" />
++    <path android:fillColor="#A99AFF" android:pathData="M25,28h58v13h-22v40h-14v-40h-22z" />
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_notification.xml b/app/src/main/res/drawable/ic_notification.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..38ac873a690942f752f611be2b7e322555513e66
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_notification.xml
+@@ -0,0 +1,4 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
++    <path android:fillColor="#141A2E" android:pathData="M0,0h108v108h-108z" />
++    <path android:fillColor="#A99AFF" android:pathData="M25,28h58v13h-22v40h-14v-40h-22z" />
++</vector>
+diff --git a/app/src/main/res/drawable/ic_splash.xml b/app/src/main/res/drawable/ic_splash.xml
+index 2c0d0c72ab2acc6e220a10d6dfa26846d3b1cfef..3ec83235b67de921d6a463d0214c88386643bd28 100644
+--- a/app/src/main/res/drawable/ic_splash.xml
++++ b/app/src/main/res/drawable/ic_splash.xml
+@@ -1,9 +1,12 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Tanukifin phoenix logo -->
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="108dp"
+     android:height="108dp"
+     android:viewportWidth="1024"
+     android:viewportHeight="1024">
+     <path
+-        android:fillColor="@color/splash_fill"
+-        android:pathData="m512 284.789466c-57.344 0-241.850182 334.568734-213.736727 391.074914 28.113454 56.50618 399.639277 55.85454 427.473457 0 27.83418-55.85455-156.39273-391.074914-213.73673-391.074914zm140.10182 342.109094c-18.24582 36.58473-261.67855 37.05018-280.11055 0-18.431997-37.05018 102.49309-256.27928 140.00873-256.27928s158.34764 219.60146 140.10182 256.27928zm-140.10182-176.128c-18.99055 0-80.24436 111.05745-70.93527 129.76873 9.30909 18.71127 132.65454 18.52509 141.87054 0s-51.85163-129.76873-70.93527-129.76873z" />
++        android:fillColor="#FFA99AFF"
++        android:fillType="evenOdd"
++        android:pathData="M512.0 295.8C517.1 315.0 521.0 327.8 523.5 337.4C533.1 331.0 545.9 324.6 556.8 309.9C553.6 337.4 546.6 353.4 540.2 367.5C540.2 385.4 535.0 399.5 529.9 411.0C527.4 427.0 529.9 443.0 537.6 455.8C593.9 423.8 670.7 359.8 741.1 315.0C715.5 369.4 696.3 404.6 670.7 420.6C696.3 411.0 721.9 401.4 746.2 390.5C715.5 430.2 689.9 455.8 654.7 468.6C680.3 468.6 705.9 468.6 729.6 471.8C696.3 497.4 661.1 510.2 625.9 513.4C648.3 519.8 670.7 529.4 693.1 540.3C638.7 561.4 581.1 558.2 544.0 539.0C540.2 564.6 537.6 577.4 535.0 590.2C558.7 647.8 600.3 705.4 654.7 779.0C606.7 750.2 571.5 721.4 551.7 692.6C564.5 737.4 563.2 772.6 546.6 817.4C533.8 779.0 521.0 753.4 512.0 734.2C503.0 753.4 490.2 779.0 477.4 817.4C460.8 772.6 459.5 737.4 472.3 692.6C452.5 721.4 417.3 750.2 369.3 779.0C423.7 705.4 465.3 647.8 489.0 590.2C486.4 577.4 483.8 564.6 480.0 539.0C442.9 558.2 385.3 561.4 330.9 540.3C353.3 529.4 375.7 519.8 398.1 513.4C362.9 510.2 327.7 497.4 294.4 471.8C318.1 468.6 343.7 468.6 369.3 468.6C334.1 455.8 308.5 430.2 277.8 390.5C302.1 401.4 327.7 411.0 353.3 420.6C327.7 404.6 308.5 369.4 282.9 315.0C353.3 359.8 430.1 423.8 486.4 455.8C494.1 443.0 496.6 427.0 494.1 411.0C489.0 399.5 483.8 385.4 483.8 367.5C477.4 353.4 470.4 337.4 467.2 309.9C478.1 324.6 490.9 331.0 500.5 337.4C503.0 327.8 506.9 315.0 512.0 295.8ZM558.7 475.0C600.3 449.4 645.1 417.4 696.3 367.5C648.94 426.35999999999996 604.14 458.35999999999996 558.7 475.0ZM465.3 475.0C423.7 449.4 378.9 417.4 327.7 367.5C382.73999999999995 426.35999999999996 427.53999999999996 458.35999999999996 465.3 475.0ZM568.3 507.0C613.1 487.8 657.9 475.0 704.0 450.7C661.74 483.96 616.94 496.76 568.3 507.0ZM455.7 507.0C410.9 487.8 366.1 475.0 320.0 450.7C369.94 483.96 414.73999999999995 496.76 455.7 507.0Z" />
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_tv_aspect_ratio.xml b/app/src/main/res/drawable/ic_tv_aspect_ratio.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..df48f6604a77cc9164cbf6fc6f5f31dcab87da58
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_tv_aspect_ratio.xml
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:tint="?attr/colorControlNormal"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="@android:color/white"
++        android:pathData="M19,12h-2v3h-3v2h5v-5zM7,9h3L10,7L5,7v5h2L7,9zM21,3L3,3c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h18c1.1,0 2,-0.9 2,-2L23,5c0,-1.1 -0.9,-2 -2,-2zM21,19.01L3,19.01L3,4.99h18v14.02z" />
++</vector>
+diff --git a/app/src/main/res/drawable/ic_tv_fast_forward.xml b/app/src/main/res/drawable/ic_tv_fast_forward.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..1db91972abad3a359d9b722a3021cf649ec3cb26
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_tv_fast_forward.xml
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:tint="?attr/colorControlNormal"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="@android:color/white"
++        android:pathData="M4,18l8.5,-6L4,6v12zM13,6v12l8.5,-6L13,6z" />
++</vector>
+diff --git a/app/src/main/res/drawable/ic_tv_rewind.xml b/app/src/main/res/drawable/ic_tv_rewind.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..68b9b893d5db04ee1f718c91e3f9eda4eec30f67
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_tv_rewind.xml
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:tint="?attr/colorControlNormal"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="@android:color/white"
++        android:pathData="M11,18V6l-8.5,6 8.5,6zM11.5,12l8.5,6V6l-8.5,6z" />
++</vector>
+diff --git a/app/src/main/res/drawable/ripple_background_circular.xml b/app/src/main/res/drawable/ripple_background_circular.xml
+index 3eb6c84aa84f3d272c4d3b5bd0d6bdb7bfa2074f..3cf82c51c13b5f77332663642b51a138e5a74be8 100644
+--- a/app/src/main/res/drawable/ripple_background_circular.xml
++++ b/app/src/main/res/drawable/ripple_background_circular.xml
+@@ -1,4 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
++<!-- Tanukifin: same ripple as before, plus a violet glow ring when focused with the remote -->
+ <ripple xmlns:android="http://schemas.android.com/apk/res/android"
+     android:color="?attr/colorControlHighlight">
+     <item android:id="@android:id/mask">
+@@ -6,4 +7,17 @@
+             <solid android:color="@android:color/white" />
+         </shape>
+     </item>
+-</ripple>
+\ No newline at end of file
++    <item>
++        <selector>
++            <item android:state_focused="true">
++                <shape android:shape="oval">
++                    <solid android:color="#66A99AFF" />
++                    <stroke android:width="2dp" android:color="#FFA99AFF" />
++                </shape>
++            </item>
++            <item>
++                <color android:color="@android:color/transparent" />
++            </item>
++        </selector>
++    </item>
++</ripple>
+diff --git a/app/src/main/res/drawable/tv_banner.xml b/app/src/main/res/drawable/tv_banner.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..fde951360138ad58654a7d7125bbd4deefa607c5
+--- /dev/null
++++ b/app/src/main/res/drawable/tv_banner.xml
+@@ -0,0 +1,4 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="320dp" android:height="180dp" android:viewportWidth="320" android:viewportHeight="180">
++    <path android:fillColor="#141A2E" android:pathData="M0,0h320v180h-320z" />
++    <path android:fillColor="#A99AFF" android:pathData="M120,50h80v17h-31v63h-18v-63h-31z" />
++</vector>
+diff --git a/app/src/main/res/drawable/tv_focus_bar.xml b/app/src/main/res/drawable/tv_focus_bar.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..7d38a49470b728c184c26cae20acb4113cc8692b
+--- /dev/null
++++ b/app/src/main/res/drawable/tv_focus_bar.xml
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Tanukifin: highlights the progress bar when the remote focuses it -->
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_focused="true">
++        <shape android:shape="rectangle">
++            <corners android:radius="12dp" />
++            <solid android:color="#33A99AFF" />
++            <stroke android:width="1dp" android:color="#AAA99AFF" />
++        </shape>
++    </item>
++    <item>
++        <color android:color="@android:color/transparent" />
++    </item>
++</selector>
+diff --git a/app/src/main/res/drawable/tv_scrim_bottom.xml b/app/src/main/res/drawable/tv_scrim_bottom.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..086fb2c89c9aa49ac15c6eea1dbd0192ac3b7b06
+--- /dev/null
++++ b/app/src/main/res/drawable/tv_scrim_bottom.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android">
++    <gradient android:angle="90" android:startColor="#E60B0F1A" android:centerColor="#800B0F1A" android:endColor="#000B0F1A" />
++</shape>
+diff --git a/app/src/main/res/drawable/tv_scrim_top.xml b/app/src/main/res/drawable/tv_scrim_top.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b16e66b6c5df9579cca28530f5a9f6a51083987
+--- /dev/null
++++ b/app/src/main/res/drawable/tv_scrim_top.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android">
++    <gradient android:angle="270" android:startColor="#CC0B0F1A" android:centerColor="#550B0F1A" android:endColor="#000B0F1A" />
++</shape>
+diff --git a/app/src/main/res/layout-television/exo_player_control_view.xml b/app/src/main/res/layout-television/exo_player_control_view.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..c0a148cd16d770c906be218571044e527b1dcb89
+--- /dev/null
++++ b/app/src/main/res/layout-television/exo_player_control_view.xml
+@@ -0,0 +1,363 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++    Tanukifin: TV player controls, laid out like the official Jellyfin Fire TV / Android TV player.
++    Keeps every view id of the phone layout (layout/exo_player_control_view.xml) with the same view types,
++    so the existing player code works unchanged.
++-->
++<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:app="http://schemas.android.com/apk/res-auto"
++    android:id="@+id/player_controls"
++    android:layout_width="match_parent"
++    android:layout_height="match_parent">
++
++    <!-- Gradients so text stays readable over bright video -->
++    <View
++        android:id="@+id/tv_scrim_top"
++        android:layout_width="0dp"
++        android:layout_height="200dp"
++        android:background="@drawable/tv_scrim_top"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toTopOf="parent" />
++
++    <View
++        android:id="@+id/tv_scrim_bottom"
++        android:layout_width="0dp"
++        android:layout_height="280dp"
++        android:background="@drawable/tv_scrim_bottom"
++        app:layout_constraintBottom_toBottomOf="parent"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintStart_toStartOf="parent" />
++
++    <!-- Kept for the shared player code, not shown on TV -->
++    <androidx.appcompat.widget.Toolbar
++        android:id="@+id/toolbar"
++        android:layout_width="0dp"
++        android:layout_height="wrap_content"
++        android:visibility="gone"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toTopOf="parent" />
++
++    <!-- Top left: title logo and episode line -->
++    <ImageView
++        android:id="@+id/tv_logo"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:layout_marginStart="48dp"
++        android:layout_marginTop="32dp"
++        android:adjustViewBounds="true"
++        android:importantForAccessibility="no"
++        android:maxWidth="320dp"
++        android:maxHeight="72dp"
++        android:scaleType="fitStart"
++        android:visibility="gone"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toTopOf="parent" />
++
++    <TextView
++        android:id="@+id/tv_title"
++        style="@style/TvPlayerText"
++        android:layout_width="0dp"
++        android:layout_height="wrap_content"
++        android:layout_marginStart="48dp"
++        android:layout_marginTop="10dp"
++        android:layout_marginEnd="24dp"
++        android:ellipsize="end"
++        android:maxLines="2"
++        android:textSize="22sp"
++        app:layout_constraintEnd_toStartOf="@id/tv_clock"
++        app:layout_constraintStart_toStartOf="parent"
++        app:layout_constraintTop_toBottomOf="@id/tv_logo"
++        app:layout_goneMarginTop="32dp" />
++
++    <!-- Top right: clock -->
++    <TextClock
++        android:id="@+id/tv_clock"
++        style="@style/TvPlayerText"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:layout_marginTop="34dp"
++        android:layout_marginEnd="48dp"
++        android:textSize="26sp"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintTop_toTopOf="parent" />
++
++    <!-- Row 1: play/pause, rewind, forward, subtitles, audio -->
++    <LinearLayout
++        android:id="@+id/tv_row_main"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:layout_marginStart="40dp"
++        android:layout_marginBottom="6dp"
++        android:gravity="center_vertical"
++        android:orientation="horizontal"
++        app:layout_constraintBottom_toTopOf="@id/seek_bar_container"
++        app:layout_constraintStart_toStartOf="parent">
++
++        <FrameLayout
++            android:id="@+id/play_pause_container"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content">
++
++            <androidx.appcompat.widget.AppCompatImageButton
++                android:id="@+id/exo_play_pause"
++                style="@style/TvPlayerButton" />
++        </FrameLayout>
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/tv_rewind_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Rewind"
++            android:src="@drawable/ic_tv_rewind" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/tv_fast_forward_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Fast forward"
++            android:src="@drawable/ic_tv_fast_forward" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/subtitles_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Subtitles"
++            android:src="@drawable/ic_subtitles_stateful_24dp" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/audio_streams_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Audio"
++            android:src="@drawable/ic_music_note_white_24dp" />
++    </LinearLayout>
++
++    <TextView
++        android:id="@+id/tv_ends_at"
++        style="@style/TvPlayerText"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:layout_marginEnd="56dp"
++        android:layout_marginBottom="10dp"
++        android:textSize="18sp"
++        android:textStyle="bold"
++        app:layout_constraintBottom_toTopOf="@id/seek_bar_container"
++        app:layout_constraintEnd_toEndOf="parent" />
++
++    <!-- Progress bar -->
++    <androidx.constraintlayout.widget.ConstraintLayout
++        android:id="@+id/seek_bar_container"
++        android:layout_width="0dp"
++        android:layout_height="wrap_content"
++        android:layout_marginStart="44dp"
++        android:layout_marginEnd="44dp"
++        android:layout_marginBottom="4dp"
++        app:layout_constraintBottom_toTopOf="@id/tv_row_extra"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintStart_toStartOf="parent">
++
++        <androidx.constraintlayout.widget.ConstraintLayout
++            android:id="@+id/chapter_marking_container"
++            android:layout_width="0dp"
++            android:layout_height="0dp"
++            android:layout_marginStart="11dp"
++            android:layout_marginEnd="11dp"
++            android:orientation="horizontal"
++            app:layout_constraintBottom_toBottomOf="parent"
++            app:layout_constraintEnd_toEndOf="parent"
++            app:layout_constraintStart_toStartOf="parent"
++            app:layout_constraintTop_toTopOf="parent" />
++
++        <androidx.media3.ui.DefaultTimeBar
++            android:id="@+id/exo_progress"
++            android:layout_width="0dp"
++            android:layout_height="wrap_content"
++            android:background="@drawable/tv_focus_bar"
++            app:bar_height="5dp"
++            app:buffered_color="#66FFFFFF"
++            app:layout_constraintBottom_toBottomOf="parent"
++            app:layout_constraintEnd_toEndOf="parent"
++            app:layout_constraintStart_toStartOf="parent"
++            app:layout_constraintTop_toTopOf="parent"
++            app:played_color="#A99AFF"
++            app:scrubber_color="#FFFFFF"
++            app:scrubber_dragged_size="24dp"
++            app:scrubber_enabled_size="16dp"
++            app:unplayed_color="#40FFFFFF" />
++    </androidx.constraintlayout.widget.ConstraintLayout>
++
++    <!-- Row 2: episode / chapter navigation, speed, quality, decoder, info, zoom -->
++    <LinearLayout
++        android:id="@+id/tv_row_extra"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:layout_marginStart="40dp"
++        android:layout_marginBottom="36dp"
++        android:gravity="center_vertical"
++        android:orientation="horizontal"
++        app:layout_constraintBottom_toBottomOf="parent"
++        app:layout_constraintStart_toStartOf="parent">
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/previous_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Previous"
++            android:src="@drawable/ic_skip_previous_black_32dp" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/next_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Next episode"
++            android:src="@drawable/ic_skip_next_black_32dp" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/previous_chapter_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Previous chapter"
++            android:src="@drawable/ic_skip_previous_chapter_black_32dp" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/next_chapter_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Next chapter"
++            android:src="@drawable/ic_skip_next_chapter_black_32dp" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/speed_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Playback speed"
++            android:src="@drawable/ic_slow_motion_video_white_24dp" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/quality_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Quality"
++            android:src="@drawable/ic_settings_white_24dp" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/decoder_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Decoder"
++            android:src="@drawable/ic_video_settings_white_24dp" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/info_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Playback info"
++            android:src="@drawable/ic_info_white_24dp" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/tv_zoom_button"
++            style="@style/TvPlayerButton"
++            android:contentDescription="Zoom"
++            android:src="@drawable/ic_tv_aspect_ratio" />
++
++        <!-- Phone-only buttons, kept hidden for the shared player code -->
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/lock_screen_button"
++            style="@style/TvPlayerButton"
++            android:src="@drawable/ic_screen_lock_white_24dp"
++            android:visibility="gone" />
++
++        <androidx.appcompat.widget.AppCompatImageButton
++            android:id="@+id/fullscreen_switcher"
++            style="@style/TvPlayerButton"
++            android:src="@drawable/ic_fullscreen_enter_white_32dp"
++            android:visibility="gone" />
++    </LinearLayout>
++
++    <!-- Bottom right: position / duration -->
++    <LinearLayout
++        android:id="@+id/tv_time_container"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:layout_marginEnd="56dp"
++        android:orientation="horizontal"
++        app:layout_constraintBottom_toBottomOf="@id/tv_row_extra"
++        app:layout_constraintEnd_toEndOf="parent"
++        app:layout_constraintTop_toTopOf="@id/tv_row_extra">
++
++        <androidx.appcompat.widget.AppCompatTextView
++            android:id="@+id/exo_position"
++            style="@style/TvPlayerText"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:textSize="18sp"
++            android:textStyle="bold" />
++
++        <TextView
++            style="@style/TvPlayerText"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:text="  /  "
++            android:textSize="18sp"
++            android:textStyle="bold" />
++
++        <androidx.appcompat.widget.AppCompatTextView
++            android:id="@+id/exo_duration"
++            style="@style/TvPlayerText"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:textSize="18sp"
++            android:textStyle="bold" />
++    </LinearLayout>
++
++    <androidx.constraintlayout.widget.Barrier
++        android:id="@+id/controls_barrier"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        app:barrierDirection="top"
++        app:constraint_referenced_ids="tv_row_extra" />
++
++    <!-- Seek preview thumbnails (positioned in code above the progress bar) -->
++    <FrameLayout
++        android:id="@+id/trickplay_container"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:layout_marginBottom="12dp"
++        android:background="#282828"
++        android:elevation="8dp"
++        android:visibility="gone"
++        app:layout_constraintBottom_toTopOf="@id/seek_bar_container"
++        app:layout_constraintStart_toStartOf="parent">
++
++        <androidx.appcompat.widget.AppCompatImageView
++            android:id="@+id/trickplay_thumbnail"
++            android:layout_width="wrap_content"
++            android:layout_height="@dimen/trickplay_thumbnail_height"
++            android:scaleType="fitXY" />
++
++        <LinearLayout
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:layout_gravity="bottom"
++            android:orientation="vertical"
++            android:paddingStart="8dp"
++            android:paddingTop="4dp"
++            android:paddingEnd="8dp"
++            android:paddingBottom="8dp">
++
++            <androidx.appcompat.widget.AppCompatTextView
++                android:id="@+id/trickplay_chapter_name"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:alpha="0.9"
++                android:ellipsize="end"
++                android:maxLines="1"
++                android:shadowColor="#FF000000"
++                android:shadowRadius="6"
++                android:textColor="@android:color/white"
++                android:textSize="14sp"
++                android:visibility="gone" />
++
++            <androidx.appcompat.widget.AppCompatTextView
++                android:id="@+id/trickplay_time"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginTop="4dp"
++                android:shadowColor="#FF000000"
++                android:shadowRadius="6"
++                android:textColor="@android:color/white"
++                android:textSize="20sp"
++                android:textStyle="bold" />
++        </LinearLayout>
++    </FrameLayout>
++</androidx.constraintlayout.widget.ConstraintLayout>
+diff --git a/app/src/main/res/layout/exo_player_control_view.xml b/app/src/main/res/layout/exo_player_control_view.xml
+index 440b1820469323a47358f25436d44473696e7670..54700ccb9fc7e2ecfc1c37bbb11aaf3762d9f91b 100644
+--- a/app/src/main/res/layout/exo_player_control_view.xml
++++ b/app/src/main/res/layout/exo_player_control_view.xml
+@@ -131,8 +131,9 @@
+             app:layout_constraintEnd_toEndOf="parent"
+             app:layout_constraintStart_toStartOf="parent"
+             app:layout_constraintTop_toTopOf="parent"
+-            app:played_color="?colorAccent"
+-            app:scrubber_color="?colorAccent"
++            android:background="@drawable/tv_focus_bar"
++            app:played_color="#A99AFF"
++            app:scrubber_color="#FFFFFF"
+             app:scrubber_dragged_size="24dp"
+             app:scrubber_enabled_size="16dp"
+             app:unplayed_color="@color/playback_timebar_unplayed" />
+diff --git a/app/src/main/res/mipmap/ic_launcher.xml b/app/src/main/res/mipmap/ic_launcher.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..38ac873a690942f752f611be2b7e322555513e66
+--- /dev/null
++++ b/app/src/main/res/mipmap/ic_launcher.xml
+@@ -0,0 +1,4 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
++    <path android:fillColor="#141A2E" android:pathData="M0,0h108v108h-108z" />
++    <path android:fillColor="#A99AFF" android:pathData="M25,28h58v13h-22v40h-14v-40h-22z" />
++</vector>
+diff --git a/app/src/main/res/mipmap/ic_launcher_round.xml b/app/src/main/res/mipmap/ic_launcher_round.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..38ac873a690942f752f611be2b7e322555513e66
+--- /dev/null
++++ b/app/src/main/res/mipmap/ic_launcher_round.xml
+@@ -0,0 +1,4 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
++    <path android:fillColor="#141A2E" android:pathData="M0,0h108v108h-108z" />
++    <path android:fillColor="#A99AFF" android:pathData="M25,28h58v13h-22v40h-14v-40h-22z" />
++</vector>
+diff --git a/app/src/main/res/values/strings_donottranslate.xml b/app/src/main/res/values/strings_donottranslate.xml
+index 4f119927d32f1cd40ca1ddef5070ef25442c2157..7474f41c9a72b93dec3aee1889be9f0ae7288692 100644
+--- a/app/src/main/res/values/strings_donottranslate.xml
++++ b/app/src/main/res/values/strings_donottranslate.xml
+@@ -1,5 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <resources>
+-    <string name="app_name" translatable="false">Jellyfin</string>
+-    <string name="app_name_short" translatable="false">Jellyfin</string>
++    <string name="app_name" translatable="false">Tanukifin</string>
++    <string name="app_name_short" translatable="false">Tanukifin</string>
+ </resources>
+diff --git a/app/src/main/res/values/tv_player_styles.xml b/app/src/main/res/values/tv_player_styles.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..fee356ea1b9b6f891fdbfa231d7bac44dd72dea6
+--- /dev/null
++++ b/app/src/main/res/values/tv_player_styles.xml
+@@ -0,0 +1,21 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <!-- Tanukifin: TV player buttons -->
++    <style name="TvPlayerButton">
++        <item name="android:layout_width">56dp</item>
++        <item name="android:layout_height">56dp</item>
++        <item name="android:layout_marginEnd">22dp</item>
++        <item name="android:padding">13dp</item>
++        <item name="android:scaleType">fitCenter</item>
++        <item name="android:background">@drawable/ripple_background_circular</item>
++        <item name="android:focusable">true</item>
++        <item name="tint">#FFFFFFFF</item>
++    </style>
++    <style name="TvPlayerText">
++        <item name="android:textColor">#FFF7F7FC</item>
++        <item name="android:shadowColor">#CC000000</item>
++        <item name="android:shadowRadius">6</item>
++        <item name="android:shadowDy">1</item>
++    </style>
++    <string name="tv_player_ends_at" translatable="false">Ends at %1$s</string>
++</resources>
