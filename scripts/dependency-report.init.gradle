@@ -15,7 +15,7 @@ allprojects { project ->
                             }
                         }
                     }
-                    collect(configurations.getByName('libreReleaseRuntimeClasspath'))
+                    collect(project.configurations.getByName('libreReleaseRuntimeClasspath'))
                     rootProject.allprojects.each { item ->
                         def classpath = item.buildscript.configurations.findByName('classpath')
                         if (classpath != null && classpath.canBeResolved) collect(classpath)

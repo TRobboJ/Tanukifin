@@ -34,7 +34,7 @@ def audit(source, output, resolved=None):
         headers={'Content-Type': 'application/json'}, method='POST')
     with urllib.request.urlopen(request, timeout=90) as response:
         results = json.load(response)['results']
-    if len(results) != len(packages) or any(result.get('next_page_token') for result in results):
+    if len(results) != len(packages) or any(result.get('next_page_token') or result.get('error') for result in results):
         raise ValueError('Incomplete advisory response; review before releasing')
     findings = []
     for (name, version), result in zip(packages, results):
