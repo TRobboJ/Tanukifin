@@ -58,10 +58,13 @@ def build():
     source = ROOT / 'upstream'
     output = ROOT / 'out'
     output.mkdir(exist_ok=True)
+    env['TANUKIFIN_AUDIT_DIR'] = str(output)
     subprocess.run(['bash', './gradlew', '--no-daemon', '-I', str(ROOT / 'scripts/dependency-report.init.gradle'),
                     ':app:exportTanukifinDependencies'], cwd=source, env=env, check=True)
     audit(source, output / 'dependency-audit.json', output / 'dependencies.json')
-    subprocess.run(['bash', './gradlew', '--no-daemon', 'assembleLibreRelease'], cwd=source, env=env, check=True)
+    subprocess.run(['bash', './gradlew', '--no-daemon', '--no-build-cache', '--no-configuration-cache',
+                    '-I', str(ROOT / 'scripts/dependency-report.init.gradle'), 'assembleLibreRelease'],
+                   cwd=source, env=env, check=True)
     apks = list((source / 'app/build/outputs/apk/libre/release').glob('*.apk'))
     if len(apks) != 1:
         raise ValueError('Expected exactly one release APK')
@@ -73,6 +76,7 @@ def build():
         'sourceCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
         'upstream': json.loads((ROOT / 'upstream.json').read_text()),
         'patchSha256': digest(ROOT / 'tanukifin.patch'), 'apkSha256': digest(apk), 'signed': False,
+        'dependencyOverridesSha256': digest(ROOT / 'dependency-versions.json'),
         'inspection': inspection,
         'workflowRun': os.environ.get('GITHUB_RUN_ID'),
         'javaVersion': subprocess.check_output(['java', '-version'], stderr=subprocess.STDOUT, text=True),

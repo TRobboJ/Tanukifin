@@ -2192,9 +2192,18 @@ index 0000000000000000000000000000000000000000..e0a5349a65993ed0700495c861879803
 +    }
 +}
 diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
-index c5b509c600dcfb6a62e701c260a23a9dabdf9349..8ca0de71af61d0acb32f74ff0410f18079d4dae2 100644
+index c5b509c600dcfb6a62e701c260a23a9dabdf9349..bbfb24eee8a5d1416d6d24a6d79967919c87be3d 100644
 --- a/gradle/libs.versions.toml
 +++ b/gradle/libs.versions.toml
+@@ -6,7 +6,7 @@ android-targetSdk = "36"
+ 
+ # Plugins
+ android-plugin = "9.3.1"
+-kotlin = "2.4.10"
++kotlin = "2.4.21"
+ kotlin-ksp = "2.3.10"
+ detekt = "1.23.8"
+ android-junit5 = "2.0.1"
 @@ -50,7 +50,6 @@ coil = "3.4.0"
  androidx-media = "1.7.1"
  androidx-mediarouter = "1.8.1"
