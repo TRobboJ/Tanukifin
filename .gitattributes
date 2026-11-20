@@ -1,4 +1,4 @@
-* text=auto
+* text=auto eol=lf
 *.patch -text -whitespace
 *.sh text eol=lf
 *.py text eol=lf

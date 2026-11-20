@@ -925,7 +925,7 @@ index 85a2de92fab396f553dfdd621c088e680c30b89a..d47625794d87a409e0b64515fe11833d
      // Webapp constants
 diff --git a/app/src/main/java/org/jellyfin/mobile/utils/CrashReporter.kt b/app/src/main/java/org/jellyfin/mobile/utils/CrashReporter.kt
 new file mode 100644
-index 0000000000000000000000000000000000000000..b25b5e868edcb068e6384579f1cddb060fb325a7
+index 0000000000000000000000000000000000000000..8c66771713ed270b2995c1ccc115a21a17b90121
 --- /dev/null
 +++ b/app/src/main/java/org/jellyfin/mobile/utils/CrashReporter.kt
 @@ -0,0 +1,55 @@
@@ -978,7 +978,7 @@ index 0000000000000000000000000000000000000000..b25b5e868edcb068e6384579f1cddb06
 +            .setTitle("Tanukifin closed unexpectedly")
 +            .setMessage(
 +                "Please take a photo of this screen and report it at\n" +
-+                    "github.com/hansonds/Tanukifin/issues\n\n" + report,
++                    "github.com/TRobboJ/Tanukifin/issues\n\n" + report,
 +            )
 +            .setPositiveButton(android.R.string.ok, null)
 +            .show()
