@@ -9,6 +9,7 @@ See the **[original repository and documentation](https://github.com/hansonds/Ph
 - Tanukifin app/package identity (`org.tanukifin.tv`), no original promotional banner/artwork, and a minimal T launcher tile.
 - Exact server-origin navigation and an origin-scoped native bridge. A current WebView supporting scoped messaging and document-start scripts is required; unsupported versions are blocked.
 - Pinned upstream/action commits, dependency advisory checks and APK permission/native-library checks.
+- Reviewed transitive dependency fixes are pinned in `dependency-versions.json` and applied to both runtime and build-tool resolution.
 - No bundled FFmpeg audio extension. Unsupported audio may require Jellyfin server transcoding; allow audio transcoding for the account used on your TV.
 - Releases require an explicit manual action. Builds and dependency checks run without signing secrets; signing uses a separate fresh runner.
 
