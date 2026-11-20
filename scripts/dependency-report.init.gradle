@@ -22,30 +22,31 @@ gradle.beforeProject { project ->
     project.configurations.configureEach(pin)
 }
 
-// buildSrc is a separate build; include its plugin/runtime classpaths as well.
-gradle.projectsEvaluated {
-    if (gradle.rootProject.projectDir.name == 'buildSrc') {
-        def coordinates = [] as Set
-        def collect = { configuration ->
-            configuration.incoming.resolutionResult.allComponents.each { component ->
-                def id = component.id
-                if (id instanceof ModuleComponentIdentifier) {
-                    coordinates.add([name: "${id.group}:${id.module}".toString(), version: id.version])
-                }
-            }
-        }
-        gradle.rootProject.allprojects.each { item ->
-            item.buildscript.configurations.findAll { it.name == 'classpath' && it.canBeResolved }.each(collect)
-            item.configurations.findAll { it.name in ['compileClasspath', 'runtimeClasspath'] && it.canBeResolved }.each(collect)
-        }
-        def output = new File(System.getenv('TANUKIFIN_AUDIT_DIR'), 'buildsrc-dependencies.json')
-        output.parentFile.mkdirs()
-        output.text = JsonOutput.toJson(coordinates)
-    }
-}
-
 allprojects { project ->
     afterEvaluate {
+        // Resolve each build's configurations in its own task execution context.
+        // Gradle 9 forbids resolving them from a global projectsEvaluated callback.
+        if (project.projectDir.name == 'buildSrc' && project == rootProject) {
+            def export = tasks.register('exportTanukifinBuildSrcDependencies') {
+                doLast {
+                    def coordinates = [] as Set
+                    def collect = { configuration ->
+                        configuration.incoming.resolutionResult.allComponents.each { component ->
+                            def id = component.id
+                            if (id instanceof ModuleComponentIdentifier) {
+                                coordinates.add([name: "${id.group}:${id.module}".toString(), version: id.version])
+                            }
+                        }
+                    }
+                    project.buildscript.configurations.findAll { it.name == 'classpath' && it.canBeResolved }.each(collect)
+                    project.configurations.findAll { it.name in ['compileClasspath', 'runtimeClasspath'] && it.canBeResolved }.each(collect)
+                    def output = new File(System.getenv('TANUKIFIN_AUDIT_DIR'), 'buildsrc-dependencies.json')
+                    output.parentFile.mkdirs()
+                    output.text = JsonOutput.toJson(coordinates)
+                }
+            }
+            tasks.named('jar').configure { finalizedBy(export) }
+        }
         if (project.path == ':app') {
             tasks.register('exportTanukifinDependencies') {
                 doLast {
