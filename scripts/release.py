@@ -61,7 +61,8 @@ def publish():
     subprocess.run(['gh', 'release', 'create', f'v{selected}', '--repo', repo,
                     '--target', source, '--title', f'Tanukifin {selected}', '--draft',
                     '--notes-file', str(notes), str(ROOT / 'out/Tanukifin.apk'),
-                    str(ROOT / 'out/SHA256SUMS'), str(ROOT / 'out/build-info.json')], check=True)
+                    str(ROOT / 'out/SHA256SUMS'), str(ROOT / 'out/build-info.json'),
+                    str(ROOT / 'out/dependencies.json'), str(ROOT / 'out/dependency-audit.json')], check=True)
     subprocess.run(['gh', 'release', 'edit', f'v{selected}', '--repo', repo, '--draft=false', '--latest'], check=True)
 
 

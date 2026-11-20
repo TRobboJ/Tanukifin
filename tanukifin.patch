@@ -531,6 +531,55 @@ index 0f33bc117c0e9198d4e2560fb27543991d620f9f..6694ec4e009c579b3252801e48568711
  
      val exoPlayerNetworkBuffer: String
          get() = sharedPreferences.getString(Constants.PREF_EXOPLAYER_NETWORK_BUFFER, Constants.NETWORK_BUFFER_AUTO)!!
+diff --git a/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt b/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt
+index 0083d486c4f611acd90e83a4cfcb2dfc68f32142..418ef543acab94540c0c6ced30294cb964f5a3a7 100644
+--- a/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt
++++ b/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt
+@@ -241,11 +241,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+         }
+         val renderersFactory = DefaultRenderersFactory(getApplication()).apply {
+             setEnableDecoderFallback(true) // Fallback only works if initialization fails, not decoding at playback time
+-            val rendererMode = when {
+-                fallbackPreferExtensionRenderers -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+-                else -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+-            }
+-            setExtensionRendererMode(rendererMode)
++            // Tanukifin does not package native FFmpeg audio extensions.
++            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+             setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                 val decoderInfoList = MediaCodecSelector.DEFAULT.getDecoderInfos(
+                     mimeType,
+diff --git a/app/src/main/java/org/jellyfin/mobile/player/deviceprofile/DeviceProfileBuilder.kt b/app/src/main/java/org/jellyfin/mobile/player/deviceprofile/DeviceProfileBuilder.kt
+index 30abbad5ce2308140dfdab642581b7f578d9aaf8..9d3e8815cefce025fc0a769d1206d9ba4b0181e5 100644
+--- a/app/src/main/java/org/jellyfin/mobile/player/deviceprofile/DeviceProfileBuilder.kt
++++ b/app/src/main/java/org/jellyfin/mobile/player/deviceprofile/DeviceProfileBuilder.kt
+@@ -95,7 +95,7 @@ class DeviceProfileBuilder(
+                 type = DlnaProfileType.VIDEO,
+                 container = "ts",
+                 videoCodec = "h264",
+-                audioCodec = "mp1,mp2,mp3,aac,ac3,eac3,dts,mlp,truehd",
++                audioCodec = "aac,mp3",
+                 protocol = MediaStreamProtocol.HLS,
+                 conditions = emptyList(),
+             ),
+@@ -103,7 +103,7 @@ class DeviceProfileBuilder(
+                 type = DlnaProfileType.VIDEO,
+                 container = "mkv",
+                 videoCodec = "h264",
+-                audioCodec = AVAILABLE_AUDIO_CODECS[SUPPORTED_CONTAINER_FORMATS.indexOf("mkv")].joinToString(","),
++                audioCodec = supportedAudioCodecs[SUPPORTED_CONTAINER_FORMATS.indexOf("mkv")].joinToString(","),
+                 protocol = MediaStreamProtocol.HLS,
+                 conditions = emptyList(),
+             ),
+@@ -328,7 +328,7 @@ class DeviceProfileBuilder(
+          * List of audio codecs that will be added to the device profile regardless of [MediaCodecList] advertising them.
+          * This is especially useful for codecs supported by decoders integrated to ExoPlayer or added through an extension.
+          */
+-        private val FORCED_AUDIO_CODECS = arrayOf(*PCM_CODECS, "alac", "aac", "ac3", "eac3", "dts", "mlp", "truehd")
++        private val FORCED_AUDIO_CODECS = arrayOf(*PCM_CODECS, "aac", "mp3")
+ 
+         private val EXO_EMBEDDED_SUBTITLES = arrayOf("dvbsub", "pgssub", "srt", "subrip", "ttml")
+         private val EXO_EXTERNAL_SUBTITLES = arrayOf("srt", "subrip", "ttml", "vtt", "webvtt")
 diff --git a/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt b/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt
 index c307fd628ab64ed152f965473f55f157e98bd4dd..448bae5fe9a769674897efcab7f724a27429ee27 100644
 --- a/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt
@@ -2099,6 +2148,35 @@ index 0000000000000000000000000000000000000000..fee356ea1b9b6f891fdbfa231d7bac44
 +    </style>
 +    <string name="tv_player_ends_at" translatable="false">Ends at %1$s</string>
 +</resources>
+diff --git a/build.gradle.kts b/build.gradle.kts
+index aa3e24795ce90375d8bfd06744eeb5ef5f3a81b3..994e9f7bc91fde864b803b7fd7485e0b1e04c010 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -1,19 +1,11 @@
+ allprojects {
+     repositories {
+-        mavenCentral()
+         google()
+-        mavenLocal {
+-            content {
+-                includeVersionByRegex(JellyfinSdk.GROUP, ".*", JellyfinSdk.LOCAL)
+-            }
+-        }
+-        maven("https://s01.oss.sonatype.org/content/repositories/snapshots/") {
+-            content {
+-                includeVersionByRegex(JellyfinSdk.GROUP, ".*", JellyfinSdk.SNAPSHOT)
+-                includeVersionByRegex(JellyfinSdk.GROUP, ".*", JellyfinSdk.SNAPSHOT_UNSTABLE)
+-                includeVersionByRegex(JellyfinMedia3.GROUP, ".*", JellyfinMedia3.SNAPSHOT)
+-            }
+-        }
++        mavenCentral()
++    }
++    configurations.configureEach {
++        resolutionStrategy.failOnDynamicVersions()
++        resolutionStrategy.failOnChangingVersions()
+     }
+ }
+ 
 diff --git a/buildSrc/settings.gradle.kts b/buildSrc/settings.gradle.kts
 new file mode 100644
 index 0000000000000000000000000000000000000000..e0a5349a65993ed0700495c8618798030a6f9b35
@@ -2113,3 +2191,31 @@ index 0000000000000000000000000000000000000000..e0a5349a65993ed0700495c861879803
 +        gradlePluginPortal()
 +    }
 +}
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index c5b509c600dcfb6a62e701c260a23a9dabdf9349..8ca0de71af61d0acb32f74ff0410f18079d4dae2 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -50,7 +50,6 @@ coil = "3.4.0"
+ androidx-media = "1.7.1"
+ androidx-mediarouter = "1.8.1"
+ androidx-media3 = "1.8.0"
+-jellyfin-androidx-media = "1.8.0+1"
+ playservices = "22.1.0"
+ 
+ # Room
+@@ -136,7 +135,6 @@ androidx-media3-datasource-okhttp = { module = "androidx.media3:media3-datasourc
+ androidx-media3-cast = { module = "androidx.media3:media3-cast", version.ref = "androidx-media3" }
+ playservices-cast = { group = "com.google.android.gms", name = "play-services-cast", version.ref = "playservices" }
+ playservices-castframework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "playservices" }
+-jellyfin-androidx-media3-ffmpeg-decoder = { module = "org.jellyfin.media3:media3-ffmpeg-decoder", version.ref = "jellyfin-androidx-media" }
+ 
+ # Room
+ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "androidx-room" }
+@@ -186,7 +184,6 @@ androidx-media3 = [
+     "androidx-media3-exoplayer",
+     "androidx-media3-exoplayer-hls",
+     "androidx-media3-datasource-okhttp",
+-    "jellyfin-androidx-media3-ffmpeg-decoder",
+ ]
+ playservices = [
+     "playservices-cast",

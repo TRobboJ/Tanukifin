@@ -159,12 +159,13 @@ Pull requests and pushes build an **unsigned release APK** and run security test
 2. Add `KEYSTORE_BASE64` (Base64-encoded keystore) and `KEYSTORE_PASSWORD` as repository Actions secrets. Do not commit the key or password.
 3. Update `VERSION` in a reviewed PR. Merge it into `main`.
 4. Open Actions → **Publish Tanukifin** → Run workflow on `main`. Enter the exact version in `VERSION` and explicitly check the publish confirmation.
-5. The workflow builds and signs the APK, verifies its signature, records source/patch/APK hashes, then creates a new release. Existing tags or releases are rejected, never overwritten.
+5. The workflow audits and builds without signing secrets. A separate fresh runner signs the APK, verifies its signature, records source/patch/APK hashes, then creates a new release. Existing tags or releases are rejected, never overwritten.
 
 Use the same signing key for updates. This package (`org.tanukifin.tv`) installs separately from the original app; its login/settings are not migrated automatically.
 The original README banner, Downloader code and promotional images have been removed. Android TV retains a minimal T launcher tile for discoverability.
 
 See [SECURITY.md](SECURITY.md) for trust boundaries, build provenance and device checks.
+See [DEPENDENCY-REVIEW.md](DEPENDENCY-REVIEW.md) for dependency assessment and the audio compatibility tradeoff. Tanukifin omits the older optional native FFmpeg decoder; unsupported audio is transcoded by your Jellyfin server, so allow audio transcoding for your account.
 
 ## Credits
 

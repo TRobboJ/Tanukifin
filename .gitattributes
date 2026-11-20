@@ -7,3 +7,4 @@
 *.md text eol=lf
 VERSION text eol=lf
 *.json text eol=lf
+*.gradle text eol=lf
