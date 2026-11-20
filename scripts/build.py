@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import zipfile
+import xml.etree.ElementTree as ET
 from audit_dependencies import audit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,9 @@ def inspect_apk(apk):
     package = subprocess.check_output([analyzer, 'manifest', 'application-id', str(apk)], text=True).strip()
     if package != 'org.tanukifin.tv':
         raise ValueError('Unexpected APK package identity')
-    permissions = subprocess.check_output([analyzer, 'manifest', 'permissions', str(apk)], text=True).splitlines()
+    manifest = ET.fromstring(subprocess.check_output([analyzer, 'manifest', 'print', str(apk)], text=True))
+    permissions = [item.attrib['{http://schemas.android.com/apk/res/android}name']
+                   for item in manifest if item.tag.startswith('uses-permission')]
     allowed = {'android.permission.' + p for p in [
         'BLUETOOTH', 'BLUETOOTH_CONNECT', 'INTERNET', 'ACCESS_WIFI_STATE', 'ACCESS_NETWORK_STATE',
         'WAKE_LOCK', 'RECEIVE_BOOT_COMPLETED', 'POST_NOTIFICATIONS', 'FOREGROUND_SERVICE',
