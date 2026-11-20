@@ -1293,7 +1293,7 @@ index 0000000000000000000000000000000000000000..441e8de532ff05a7850776b6a1350da0
 +    @Override public int hashCode() { return Objects.hash(scheme, host, port); }
 +}
 diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt b/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt
-index 2d4dcc5a3e963de79080fdadf1565c5a60e895bc..936b49fa4f65c655759837b48157bc164f0fcfe6 100644
+index 2d4dcc5a3e963de79080fdadf1565c5a60e895bc..2478082b9384bf9bff8a8c6b65432acc802c0ab6 100644
 --- a/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt
 @@ -44,7 +44,6 @@ import org.jellyfin.mobile.utils.extensions.getParcelableCompat
@@ -1330,9 +1330,12 @@ index 2d4dcc5a3e963de79080fdadf1565c5a60e895bc..936b49fa4f65c655759837b48157bc16
              }
  
              override fun onErrorReceived() {
-@@ -163,16 +167,47 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
+@@ -161,18 +165,52 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
+         }
+ 
          // Process JS functions called from other components (e.g. the PlayerActivity)
-         lifecycleScope.launch {
+-        lifecycleScope.launch {
++        viewLifecycleOwner.lifecycleScope.launch {
              for (function in webappFunctionChannel) {
 -                webView.evaluateJavascript(function, null)
 +                if (ServerOrigin.parse(server.hostname)?.allows(webView.url.orEmpty()) == true) {
@@ -1373,13 +1376,16 @@ index 2d4dcc5a3e963de79080fdadf1565c5a60e895bc..936b49fa4f65c655759837b48157bc16
 +        webViewBinding?.webView?.let { view ->
 +            originBridge?.close(view)
 +            originBridge = null
++            view.removeCallbacks(timeoutRunnable)
++            view.removeCallbacks(showLoadingContainerRunnable)
 +            view.stopLoading()
++            (view.parent as? ViewGroup)?.removeView(view)
 +            view.destroy()
 +        }
          super.onDestroyView()
          webViewBinding = null
      }
-@@ -185,10 +220,24 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
+@@ -185,10 +223,24 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
          webViewClient = jellyfinWebViewClient
          webChromeClient = JellyfinWebChromeClient(this@WebViewFragment)
          settings.applyDefault()
