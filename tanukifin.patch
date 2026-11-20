@@ -2099,3 +2099,17 @@ index 0000000000000000000000000000000000000000..fee356ea1b9b6f891fdbfa231d7bac44
 +    </style>
 +    <string name="tv_player_ends_at" translatable="false">Ends at %1$s</string>
 +</resources>
+diff --git a/buildSrc/settings.gradle.kts b/buildSrc/settings.gradle.kts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e0a5349a65993ed0700495c8618798030a6f9b35
+--- /dev/null
++++ b/buildSrc/settings.gradle.kts
+@@ -0,0 +1,8 @@
++pluginManagement {
++    repositories {
++        // Resolve Kotlin's transitive POMs directly, rather than relying on
++        // the plugin portal's Maven Central proxy.
++        mavenCentral()
++        gradlePluginPortal()
++    }
++}
