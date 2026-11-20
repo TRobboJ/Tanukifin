@@ -19,9 +19,11 @@ Download the signed **[Tanukifin.apk](https://github.com/TRobboJ/Tanukifin/relea
 
 ### Fire TV / Downloader
 
+**Downloader code: `7996387`** — [short link](https://aftv.news/7996387) · [verify destination](https://aftv.news/7996387+).
+
 1. Install **Downloader by AFTVnews** from the Fire TV app store.
 2. Allow Downloader to install apps when Fire TV prompts, or enable it under **Settings → My Fire TV → Developer Options → Install unknown apps** (menu names vary by device).
-3. Open Downloader, enter the following URL and select **Go**:
+3. Open Downloader, enter **`7996387`** and select **Go**. Alternatively, enter the full URL:
 
 ```text
 https://github.com/TRobboJ/Tanukifin/releases/latest/download/Tanukifin.apk
@@ -31,7 +33,7 @@ https://github.com/TRobboJ/Tanukifin/releases/latest/download/Tanukifin.apk
 
 This URL follows the latest published release; future APKs are published only through the manual release workflow. Installing updates still requires running the installer on the TV.
 
-GitHub Actions does **not** generate a numeric Downloader code. Codes are created separately using the [AFTVnews URL shortener](https://go.aftvnews.com/) with the URL above. The original project's code `4351534` installs Phoenicxfin, not Tanukifin. Tanukifin installs separately, with its own login/settings.
+The code above was created using the [AFTVnews URL shortener](https://go.aftvnews.com/) and points to this repository's latest-release APK URL. GitHub Actions does **not** generate it. The original project's code `4351534` installs Phoenicxfin, not Tanukifin. Tanukifin installs separately, with its own login/settings.
 
 ## Build and publish
 
