@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 396dbe2708c99481a5f7a888a044a312f59bb1a5..ca553de2960d7e12778e67c9671417227c7040ec 100644
+index 396dbe2..ca553de 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -31,6 +31,8 @@ android {
@@ -21,7 +21,7 @@ index 396dbe2708c99481a5f7a888a044a312f59bb1a5..ca553de2960d7e12778e67c967141722
  dependencies {
      val proprietaryImplementation by configurations
 diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
-index 6ebe9a6f48ee1ecde7fbb22216fd1090b122e2c2..13c4ce57bdadea77831c6b5e6817a37e2eef88a3 100644
+index 6ebe9a6..13c4ce5 100644
 --- a/app/src/main/AndroidManifest.xml
 +++ b/app/src/main/AndroidManifest.xml
 @@ -2,6 +2,10 @@
@@ -65,8 +65,122 @@ index 6ebe9a6f48ee1ecde7fbb22216fd1090b122e2c2..13c4ce57bdadea77831c6b5e6817a37e
  
          <service
              android:name=".webapp.RemotePlayerService"
+diff --git a/app/src/main/assets/native/ExoPlayerPlugin.js b/app/src/main/assets/native/ExoPlayerPlugin.js
+index 133d0eb..f5840d9 100644
+--- a/app/src/main/assets/native/ExoPlayerPlugin.js
++++ b/app/src/main/assets/native/ExoPlayerPlugin.js
+@@ -17,6 +17,8 @@ export class ExoPlayerPlugin {
+ 
+         // Current playback position in milliseconds
+         this._currentTime = 0;
++        this._volume = null;
++        this._muted = false;
+         this._paused = true;
+ 
+         this._nativePlayer = window['NativePlayer'];
+@@ -33,6 +35,7 @@ export class ExoPlayerPlugin {
+         };
+ 
+         this._paused = false;
++        this._playing = true;
+         this._nativePlayer.loadPlayer(JSON.stringify(options), JSON.stringify(preferences));
+         this.loading.hide();
+     }
+@@ -67,9 +70,25 @@ export class ExoPlayerPlugin {
+         }
+     }
+ 
+-    nextTrack() {}
++    isPlaying(mediaType) {
++        return this._playing === true && (!mediaType || mediaType === 'Video');
++    }
++
++    currentSrc() {
++        return this.isPlaying() ? this.id : null;
++    }
++
++    updateNativeState(position, paused, playing, volume = this._volume, muted = this._muted) {
++        this._currentTime = position;
++        this._paused = paused;
++        this._playing = playing;
++        this._volume = volume;
++        this._muted = muted;
++    }
++
++    nextTrack() { this._nativePlayer.nextTrack(); }
+ 
+-    previousTrack() {}
++    previousTrack() { this._nativePlayer.previousTrack(); }
+ 
+     seek(ticks) {
+         this._nativePlayer.seekTicks(ticks);
+@@ -93,30 +112,29 @@ export class ExoPlayerPlugin {
+         if (volume !== undefined) {
+             this.setVolume(volume);
+         }
+-        return null;
++        return this._volume;
+     }
+ 
+-    getVolume() {}
++    getVolume() { return this._volume; }
+ 
+     setVolume(vol) {
+         let volume = parseInt(vol);
+         this._nativePlayer.setVolume(volume);
+     }
+ 
+-    volumeUp() {}
++    volumeUp() { this._nativePlayer.adjustVolume(1); }
+ 
+-    volumeDown() {}
++    volumeDown() { this._nativePlayer.adjustVolume(-1); }
+ 
+-    isMuted() {
+-        return false;
+-    }
++    isMuted() { return this._muted; }
+ 
+-    setMute(mute) {
+-        // Assume 30% as default when unmuting
+-        this._nativePlayer.setVolume(mute ? 0 : 30);
+-    }
++    setMute(mute) { this._nativePlayer.setMuted(mute); }
+ 
+-    toggleMute() {}
++    toggleMute() { this._nativePlayer.toggleMute(); }
++
++    rewind(ms) { this._nativePlayer.seekRelative(-ms); }
++
++    fastForward(ms) { this._nativePlayer.seekRelative(ms); }
+ 
+     paused() {
+         return this._paused;
+@@ -140,17 +158,15 @@ export class ExoPlayerPlugin {
+         }
+     }
+ 
+-    canSetAudioStreamIndex() {
+-        return false;
+-    }
++    canSetAudioStreamIndex() { return this.isPlaying(); }
+ 
+-    setAudioStreamIndex(index) {}
++    setAudioStreamIndex(index) { this._nativePlayer.setAudioTrack(index); }
+ 
+-    setSubtitleStreamIndex(index) {}
++    setSubtitleStreamIndex(index) { this._nativePlayer.setSubtitleTrack(index); }
+ 
+-    async changeAudioStream(index) {}
++    async changeAudioStream(index) { this.setAudioStreamIndex(index); }
+ 
+-    async changeSubtitleStream(index) {}
++    async changeSubtitleStream(index) { this.setSubtitleStreamIndex(index); }
+ 
+     getPlaylist() {
+         return Promise.resolve([]);
 diff --git a/app/src/main/assets/native/injectionScript.js b/app/src/main/assets/native/injectionScript.js
-index 7704ed258300a91b5d0bd020acb5f2181c25f85a..06d62abc90bb8f07f3b316fbae355c789d18b211 100644
+index 7704ed2..06d62ab 100644
 --- a/app/src/main/assets/native/injectionScript.js
 +++ b/app/src/main/assets/native/injectionScript.js
 @@ -2,6 +2,7 @@
@@ -78,7 +192,7 @@ index 7704ed258300a91b5d0bd020acb5f2181c25f85a..06d62abc90bb8f07f3b316fbae355c78
      ];
      for (const script of scripts) {
 diff --git a/app/src/main/assets/native/nativeshell.js b/app/src/main/assets/native/nativeshell.js
-index 30f77ccc19209a05097cebd1f492f463c8255c01..e979a6ff01b46664781049f5934723cdd1bf8720 100644
+index 30f77cc..e979a6f 100644
 --- a/app/src/main/assets/native/nativeshell.js
 +++ b/app/src/main/assets/native/nativeshell.js
 @@ -4,7 +4,7 @@ const features = [
@@ -102,10 +216,10 @@ index 30f77ccc19209a05097cebd1f492f463c8255c01..e979a6ff01b46664781049f5934723cd
          command = command.toLowerCase();
 diff --git a/app/src/main/assets/native/tanukifin-bridge.js b/app/src/main/assets/native/tanukifin-bridge.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..c29c44b5877247d6cd09e202d5f66f8fa44d56f2
+index 0000000..49cfddf
 --- /dev/null
 +++ b/app/src/main/assets/native/tanukifin-bridge.js
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,37 @@
 +// Invoked by an origin-scoped document-start script before Jellyfin's scripts.
 +(function (config) {
 +    'use strict';
@@ -133,7 +247,8 @@ index 0000000000000000000000000000000000000000..c29c44b5877247d6cd09e202d5f66f8f
 +    }));
 +    window.NativePlayer = Object.freeze(Object.assign(methods('NativePlayer', [
 +        'loadPlayer', 'pausePlayer', 'resumePlayer', 'stopPlayer', 'destroyPlayer',
-+        'seekTicks', 'seekMs', 'setVolume'
++        'seekTicks', 'seekMs', 'setVolume', 'nextTrack', 'previousTrack',
++        'adjustVolume', 'setMuted', 'toggleMute', 'seekRelative', 'setAudioTrack', 'setSubtitleTrack'
 +    ]), { isEnabled: () => config.nativePlayer }));
 +    window.ExternalPlayer = Object.freeze(Object.assign(methods('ExternalPlayer', ['initPlayer']), {
 +        isEnabled: () => config.externalPlayer
@@ -144,13 +259,13 @@ index 0000000000000000000000000000000000000000..c29c44b5877247d6cd09e202d5f66f8f
 +})
 diff --git a/app/src/main/assets/native/tanukifin-tv.js b/app/src/main/assets/native/tanukifin-tv.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..a4026a7b24b7601c59ffbfbe19c6df38c395bb11
+index 0000000..49b55f8
 --- /dev/null
 +++ b/app/src/main/assets/native/tanukifin-tv.js
 @@ -0,0 +1,275 @@
 +/*
 + * Tanukifin TV helper
-+ * - Strong, cinematic focus glow so the remote's selection is always visible (TV layout only)
++ * - High contrast focus outline so the remote's selection is always visible (TV layout only)
 + * - "Pointer mode": an on-screen cursor driven by the D-pad, toggled with the remote's Menu (Menu) button.
 + *   OK clicks whatever is under the cursor, Back turns the pointer off.
 + * Additive only: it never changes how your theme looks when nothing is focused.
@@ -160,16 +275,16 @@ index 0000000000000000000000000000000000000000..a4026a7b24b7601c59ffbfbe19c6df38
 +
 +    const VIOLET = '#a99aff';
 +
-+    // ---------- Focus glow ----------
++    // ---------- Focus outline ----------
 +    const css = `
 +.layout-tv .card:focus .cardScalable,
 +.layout-tv .card:focus-within .cardScalable {
 +    outline: 3px solid ${VIOLET} !important;
 +    outline-offset: 4px !important;
-+    box-shadow: 0 0 0 7px rgba(169,154,255,.22), 0 0 34px rgba(147,121,255,.60) !important;
++    box-shadow: none !important;
 +}
-+.layout-tv .card .cardBox { transition: transform .18s cubic-bezier(.22,1,.36,1); }
-+.layout-tv .card:focus .cardBox { transform: scale(1.045); }
++.layout-tv .card .cardBox { transition: none !important; }
++.layout-tv .card:focus .cardBox, .layout-tv .card:focus-within .cardBox { transform: none !important; }
 +.layout-tv .card:focus .cardText-first,
 +.layout-tv .card:focus .cardText { color: #fff !important; }
 +
@@ -188,7 +303,7 @@ index 0000000000000000000000000000000000000000..a4026a7b24b7601c59ffbfbe19c6df38
 +.layout-tv a:focus {
 +    outline: 2px solid ${VIOLET} !important;
 +    outline-offset: 3px !important;
-+    box-shadow: 0 0 0 5px rgba(169,154,255,.20), 0 0 22px rgba(147,121,255,.55) !important;
++    box-shadow: none !important;
 +    border-radius: 12px;
 +}
 +.layout-tv .emby-tab-button:focus { background: rgba(169,154,255,.18) !important; }
@@ -424,7 +539,7 @@ index 0000000000000000000000000000000000000000..a4026a7b24b7601c59ffbfbe19c6df38
 +    } catch (e) { /* ignore */ }
 +})();
 diff --git a/app/src/main/java/org/jellyfin/mobile/JellyfinApplication.kt b/app/src/main/java/org/jellyfin/mobile/JellyfinApplication.kt
-index 5acc9f1790bf3d68ac1c925ea1a1c48730cc6c70..c4b5faf7449a14c12867108435e2f3c526550234 100644
+index 5acc9f1..c4b5faf 100644
 --- a/app/src/main/java/org/jellyfin/mobile/JellyfinApplication.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/JellyfinApplication.kt
 @@ -5,6 +5,7 @@ import android.webkit.WebView
@@ -446,7 +561,7 @@ index 5acc9f1790bf3d68ac1c925ea1a1c48730cc6c70..c4b5faf7449a14c12867108435e2f3c5
          Timber.plant(JellyTree())
  
 diff --git a/app/src/main/java/org/jellyfin/mobile/MainActivity.kt b/app/src/main/java/org/jellyfin/mobile/MainActivity.kt
-index e655ecb436de8f5e1b38a79fefff2ccbf875bfaf..fdb6cf951a4b41b08d44dfbc1cffdf876cc23cc8 100644
+index e655ecb..fdb6cf9 100644
 --- a/app/src/main/java/org/jellyfin/mobile/MainActivity.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/MainActivity.kt
 @@ -8,6 +8,7 @@ import android.graphics.Color
@@ -498,7 +613,7 @@ index e655ecb436de8f5e1b38a79fefff2ccbf875bfaf..fdb6cf951a4b41b08d44dfbc1cffdf87
          super.onUserLeaveHint()
          for (fragment in supportFragmentManager.fragments) {
 diff --git a/app/src/main/java/org/jellyfin/mobile/app/AppPreferences.kt b/app/src/main/java/org/jellyfin/mobile/app/AppPreferences.kt
-index 0f33bc117c0e9198d4e2560fb27543991d620f9f..6694ec4e009c579b3252801e48568711a13dbaf9 100644
+index 0f33bc1..6694ec4 100644
 --- a/app/src/main/java/org/jellyfin/mobile/app/AppPreferences.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/app/AppPreferences.kt
 @@ -2,6 +2,7 @@ package org.jellyfin.mobile.app
@@ -531,11 +646,87 @@ index 0f33bc117c0e9198d4e2560fb27543991d620f9f..6694ec4e009c579b3252801e48568711
  
      val exoPlayerNetworkBuffer: String
          get() = sharedPreferences.getString(Constants.PREF_EXOPLAYER_NETWORK_BUFFER, Constants.NETWORK_BUFFER_AUTO)!!
+diff --git a/app/src/main/java/org/jellyfin/mobile/bridge/NativePlayer.kt b/app/src/main/java/org/jellyfin/mobile/bridge/NativePlayer.kt
+index 0a67679..66a9905 100644
+--- a/app/src/main/java/org/jellyfin/mobile/bridge/NativePlayer.kt
++++ b/app/src/main/java/org/jellyfin/mobile/bridge/NativePlayer.kt
+@@ -61,6 +61,17 @@ class NativePlayer(
+         playerEventChannel.trySend(PlayerEvent.Seek(ms.milliseconds))
+     }
+ 
++    fun adjustVolume(direction: Int) { playerEventChannel.trySend(PlayerEvent.AdjustVolume(direction)) }
++    fun setMuted(muted: Boolean) { playerEventChannel.trySend(PlayerEvent.SetMuted(muted)) }
++    fun toggleMute() { playerEventChannel.trySend(PlayerEvent.ToggleMute) }
++    fun seekRelative(ms: Long) { playerEventChannel.trySend(PlayerEvent.SeekRelative(ms)) }
++    fun setAudioTrack(index: Int) { playerEventChannel.trySend(PlayerEvent.SetAudioTrack(index)) }
++    fun setSubtitleTrack(index: Int) { playerEventChannel.trySend(PlayerEvent.SetSubtitleTrack(index)) }
++
++    fun nextTrack() { playerEventChannel.trySend(PlayerEvent.NextTrack) }
++
++    fun previousTrack() { playerEventChannel.trySend(PlayerEvent.PreviousTrack) }
++
+     @JavascriptInterface
+     fun setVolume(volume: Int) {
+         playerEventChannel.trySend(PlayerEvent.SetVolume(volume))
+diff --git a/app/src/main/java/org/jellyfin/mobile/events/ActivityEventHandler.kt b/app/src/main/java/org/jellyfin/mobile/events/ActivityEventHandler.kt
+index 69c090a..648b3c0 100644
+--- a/app/src/main/java/org/jellyfin/mobile/events/ActivityEventHandler.kt
++++ b/app/src/main/java/org/jellyfin/mobile/events/ActivityEventHandler.kt
+@@ -103,7 +103,11 @@ class ActivityEventHandler(
+                 }
+             }
+             ActivityEvent.OpenSettings -> {
+-                supportFragmentManager.addFragment<SettingsFragment>()
++                supportFragmentManager.beginTransaction().apply {
++                    supportFragmentManager.findFragmentById(R.id.fragment_container)?.let { hide(it) }
++                    add(R.id.fragment_container, SettingsFragment())
++                    addToBackStack(null)
++                }.commit()
+             }
+             ActivityEvent.SelectServer -> {
+                 mainViewModel.resetServer()
 diff --git a/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt b/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt
-index 0083d486c4f611acd90e83a4cfcb2dfc68f32142..418ef543acab94540c0c6ced30294cb964f5a3a7 100644
+index 0083d48..1828b8b 100644
 --- a/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt
-@@ -241,11 +241,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+@@ -96,6 +96,7 @@ import kotlin.time.Duration.Companion.milliseconds
+ 
+ @Suppress("TooManyFunctions")
+ class PlayerViewModel(application: Application) : AndroidViewModel(application), KoinComponent, Player.Listener {
++    private val webappFunctions: org.jellyfin.mobile.webapp.WebappFunctionChannel by inject()
+     private val apiClient: ApiClient = get()
+     private val displayPreferencesApi: DisplayPreferencesApi = apiClient.displayPreferencesApi
+     private val playStateApi: PlayStateApi = apiClient.playStateApi
+@@ -208,6 +209,28 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+         viewModelScope.launch {
+             for (event in playerEventChannel) {
+                 when (event) {
++                    is PlayerEvent.AdjustVolume -> audioManager.adjustStreamVolume(
++                        AudioManager.STREAM_MUSIC,
++                        event.direction.coerceIn(-1, 1),
++                        0,
++                    )
++                    is PlayerEvent.SetMuted -> if (android.os.Build.VERSION.SDK_INT >= 23) audioManager.adjustStreamVolume(
++                        AudioManager.STREAM_MUSIC,
++                        if (event.muted) AudioManager.ADJUST_MUTE else AudioManager.ADJUST_UNMUTE,
++                        0,
++                    )
++                    PlayerEvent.ToggleMute -> if (android.os.Build.VERSION.SDK_INT >= 23) audioManager.adjustStreamVolume(
++                        AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0,
++                    )
++                    is PlayerEvent.SeekRelative -> playerOrNull?.let { player ->
++                        if (player.isCurrentMediaItemSeekable) {
++                            player.seekTo((player.currentPosition + event.milliseconds).coerceAtLeast(0))
++                        }
++                    }
++                    is PlayerEvent.SetAudioTrack -> trackSelectionHelper.selectAudioTrack(event.index)
++                    is PlayerEvent.SetSubtitleTrack -> trackSelectionHelper.selectSubtitleTrack(event.index)
++                    PlayerEvent.NextTrack -> skipToNext()
++                    PlayerEvent.PreviousTrack -> skipToPrevious()
+                     PlayerEvent.Pause -> mediaSessionCallback.onPause()
+                     PlayerEvent.Resume -> mediaSessionCallback.onPlay()
+                     PlayerEvent.Stop, PlayerEvent.Destroy -> mediaSessionCallback.onStop()
+@@ -241,11 +264,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
          }
          val renderersFactory = DefaultRenderersFactory(getApplication()).apply {
              setEnableDecoderFallback(true) // Fallback only works if initialization fails, not decoding at playback time
@@ -549,8 +740,61 @@ index 0083d486c4f611acd90e83a4cfcb2dfc68f32142..418ef543acab94540c0c6ced30294cb9
              setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
                  val decoderInfoList = MediaCodecSelector.DEFAULT.getDecoderInfos(
                      mimeType,
+@@ -329,7 +349,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+         progressUpdateJob = viewModelScope.launch {
+             while (true) {
+                 delay(Constants.PLAYER_TIME_UPDATE_RATE)
+-                playerOrNull?.reportPlaybackState()
++                playerOrNull?.let { player ->
++                    val volume = audioManager.getVolumeLevelPercent()
++                    val muted = isStreamMuted()
++                    webappFunctions.call(
++                        "window.ExoPlayer?.updateNativeState(${player.currentPosition}, " +
++                            "${!player.playWhenReady}, true, $volume, $muted);",
++                    )
++                    player.reportPlaybackState()
++                }
+             }
+         }
+     }
+@@ -396,7 +424,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+                         audioStreamIndex = mediaSource.selectedAudioStream?.index,
+                         subtitleStreamIndex = mediaSource.selectedSubtitleStream?.index,
+                         isPaused = isPaused,
+-                        isMuted = false,
++                        isMuted = isStreamMuted(),
+                         canSeek = true,
+                         positionTicks = mediaSource.startTime.inWholeTicks,
+                         volumeLevel = audioManager.getVolumeLevelPercent(),
+@@ -454,7 +482,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+                             audioStreamIndex = mediaSource.selectedAudioStream?.index,
+                             subtitleStreamIndex = mediaSource.selectedSubtitleStream?.index,
+                             isPaused = isPaused,
+-                            isMuted = false,
++                            isMuted = isStreamMuted(),
+                             canSeek = true,
+                             positionTicks = playbackPosition.inWholeTicks,
+                             volumeLevel = (currentVolume - volumeRange.first) * Constants.PERCENT_MAX / volumeRange.width,
+@@ -471,6 +499,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+ 
+     private fun reportPlaybackStop() {
+         val mediaSource = mediaSourceOrNull as? RemoteJellyfinMediaSource ?: return
++        webappFunctions.call("window.ExoPlayer?.updateNativeState(0, true, false);")
+         val player = playerOrNull ?: return
+         val hasFinished = player.playbackState == Player.STATE_ENDED
+         val lastPositionTicks = when {
+@@ -700,6 +729,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+         releasePlayer()
+     }
+ 
++    private fun isStreamMuted(): Boolean =
++        android.os.Build.VERSION.SDK_INT >= 23 && audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
++
+     private fun setVolume(percent: Int) {
+         if (audioManager.isVolumeFixed) return
+         val stream = AudioManager.STREAM_MUSIC
 diff --git a/app/src/main/java/org/jellyfin/mobile/player/deviceprofile/DeviceProfileBuilder.kt b/app/src/main/java/org/jellyfin/mobile/player/deviceprofile/DeviceProfileBuilder.kt
-index 30abbad5ce2308140dfdab642581b7f578d9aaf8..9d3e8815cefce025fc0a769d1206d9ba4b0181e5 100644
+index 30abbad..9d3e881 100644
 --- a/app/src/main/java/org/jellyfin/mobile/player/deviceprofile/DeviceProfileBuilder.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/player/deviceprofile/DeviceProfileBuilder.kt
 @@ -95,7 +95,7 @@ class DeviceProfileBuilder(
@@ -580,8 +824,27 @@ index 30abbad5ce2308140dfdab642581b7f578d9aaf8..9d3e8815cefce025fc0a769d1206d9ba
  
          private val EXO_EMBEDDED_SUBTITLES = arrayOf("dvbsub", "pgssub", "srt", "subrip", "ttml")
          private val EXO_EXTERNAL_SUBTITLES = arrayOf("srt", "subrip", "ttml", "vtt", "webvtt")
+diff --git a/app/src/main/java/org/jellyfin/mobile/player/interaction/PlayerEvent.kt b/app/src/main/java/org/jellyfin/mobile/player/interaction/PlayerEvent.kt
+index cbe8e14..f0b21d2 100644
+--- a/app/src/main/java/org/jellyfin/mobile/player/interaction/PlayerEvent.kt
++++ b/app/src/main/java/org/jellyfin/mobile/player/interaction/PlayerEvent.kt
+@@ -3,6 +3,14 @@ package org.jellyfin.mobile.player.interaction
+ import kotlin.time.Duration
+ 
+ sealed class PlayerEvent {
++    data class AdjustVolume(val direction: Int) : PlayerEvent()
++    data class SetMuted(val muted: Boolean) : PlayerEvent()
++    object ToggleMute : PlayerEvent()
++    data class SeekRelative(val milliseconds: Long) : PlayerEvent()
++    data class SetAudioTrack(val index: Int) : PlayerEvent()
++    data class SetSubtitleTrack(val index: Int) : PlayerEvent()
++    object NextTrack : PlayerEvent()
++    object PreviousTrack : PlayerEvent()
+     object Pause : PlayerEvent()
+     object Resume : PlayerEvent()
+     object Stop : PlayerEvent()
 diff --git a/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt b/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt
-index c307fd628ab64ed152f965473f55f157e98bd4dd..448bae5fe9a769674897efcab7f724a27429ee27 100644
+index c307fd6..448bae5 100644
 --- a/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerFragment.kt
 @@ -3,18 +3,24 @@ package org.jellyfin.mobile.player.ui
@@ -943,7 +1206,7 @@ index c307fd628ab64ed152f965473f55f157e98bd4dd..448bae5fe9a769674897efcab7f724a2
          playerView.player = null
  
 diff --git a/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerMenus.kt b/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerMenus.kt
-index af67f76b4b9fc99af8af8b4bb49a31d7a9419aea..9811dd07258c7a903a26287eeef23135856cdea7 100644
+index af67f76..9811dd0 100644
 --- a/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerMenus.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/player/ui/PlayerMenus.kt
 @@ -223,6 +223,12 @@ class PlayerMenus(
@@ -959,8 +1222,39 @@ index af67f76b4b9fc99af8af8b4bb49a31d7a9419aea..9811dd07258c7a903a26287eeef23135
          if (hasChapters) {
              previousButton.updateLayoutParams<ConstraintLayout.LayoutParams> { endToStart = previousChapterButton.id }
              nextButton.updateLayoutParams<ConstraintLayout.LayoutParams> { startToEnd = nextChapterButton.id }
+diff --git a/app/src/main/java/org/jellyfin/mobile/settings/SettingsFragment.kt b/app/src/main/java/org/jellyfin/mobile/settings/SettingsFragment.kt
+index 12753cc..d7414d1 100644
+--- a/app/src/main/java/org/jellyfin/mobile/settings/SettingsFragment.kt
++++ b/app/src/main/java/org/jellyfin/mobile/settings/SettingsFragment.kt
+@@ -78,6 +78,26 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
+             supportActionBar?.setDisplayHomeAsUpEnabled(true)
+         }
+         binding.recyclerView.adapter = settingsAdapter
++        val pm = requireContext().packageManager
++        if (pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) ||
++            !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN)
++        ) {
++            binding.recyclerView.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
++            binding.recyclerView.addOnChildAttachStateChangeListener(
++                object : androidx.recyclerview.widget.RecyclerView.OnChildAttachStateChangeListener {
++                    override fun onChildViewAttachedToWindow(view: View) {
++                        if (!view.isClickable) return
++                        view.isFocusable = true
++                        view.setOnFocusChangeListener { row, focused ->
++                            row.setBackgroundColor(if (focused) 0xFF394A63.toInt() else android.graphics.Color.TRANSPARENT)
++                        }
++                        if (!binding.recyclerView.hasFocus()) view.requestFocus()
++                    }
++
++                    override fun onChildViewDetachedFromWindow(view: View) = Unit
++                },
++            )
++        }
+         return binding.root
+     }
+ 
 diff --git a/app/src/main/java/org/jellyfin/mobile/utils/Constants.kt b/app/src/main/java/org/jellyfin/mobile/utils/Constants.kt
-index 85a2de92fab396f553dfdd621c088e680c30b89a..d47625794d87a409e0b64515fe11833d1ebca01e 100644
+index 85a2de9..d476257 100644
 --- a/app/src/main/java/org/jellyfin/mobile/utils/Constants.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/utils/Constants.kt
 @@ -8,7 +8,7 @@ import org.jellyfin.mobile.BuildConfig
@@ -974,7 +1268,7 @@ index 85a2de92fab396f553dfdd621c088e680c30b89a..d47625794d87a409e0b64515fe11833d
      // Webapp constants
 diff --git a/app/src/main/java/org/jellyfin/mobile/utils/CrashReporter.kt b/app/src/main/java/org/jellyfin/mobile/utils/CrashReporter.kt
 new file mode 100644
-index 0000000000000000000000000000000000000000..8c66771713ed270b2995c1ccc115a21a17b90121
+index 0000000..8c66771
 --- /dev/null
 +++ b/app/src/main/java/org/jellyfin/mobile/utils/CrashReporter.kt
 @@ -0,0 +1,55 @@
@@ -1034,7 +1328,7 @@ index 0000000000000000000000000000000000000000..8c66771713ed270b2995c1ccc115a21a
 +    }
 +}
 diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebChromeClient.kt b/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebChromeClient.kt
-index dac4e0db1ea3f0fd6f87641febe7b12c6a2f3129..71d382a0cd803fbc8fa1dd0d13f739d4beaa8251 100644
+index dac4e0d..71d382a 100644
 --- a/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebChromeClient.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebChromeClient.kt
 @@ -1,6 +1,5 @@
@@ -1093,7 +1387,7 @@ index dac4e0db1ea3f0fd6f87641febe7b12c6a2f3129..71d382a0cd803fbc8fa1dd0d13f739d4
      override fun onShowFileChooser(
          webView: WebView,
 diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebViewClient.kt b/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebViewClient.kt
-index a37c2109d3ec7ea90c4f23b1bab326f07ba74a15..160c32e1fe520684be98e012cf00a3d8ddf91187 100644
+index a37c210..160c32e 100644
 --- a/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebViewClient.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/webapp/JellyfinWebViewClient.kt
 @@ -1,5 +1,8 @@
@@ -1169,10 +1463,10 @@ index a37c2109d3ec7ea90c4f23b1bab326f07ba74a15..160c32e1fe520684be98e012cf00a3d8
                  }
 diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/OriginScopedBridge.kt b/app/src/main/java/org/jellyfin/mobile/webapp/OriginScopedBridge.kt
 new file mode 100644
-index 0000000000000000000000000000000000000000..d52ffd8fe09a51f87ec37fd6ea5e7ac67e3f6531
+index 0000000..5589bc3
 --- /dev/null
 +++ b/app/src/main/java/org/jellyfin/mobile/webapp/OriginScopedBridge.kt
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,115 @@
 +package org.jellyfin.mobile.webapp
 +
 +import android.webkit.WebView
@@ -1269,6 +1563,14 @@ index 0000000000000000000000000000000000000000..d52ffd8fe09a51f87ec37fd6ea5e7ac6
 +            "NativePlayer.destroyPlayer" -> player.destroyPlayer()
 +            "NativePlayer.seekTicks" -> player.seekTicks(args.getLong(0))
 +            "NativePlayer.seekMs" -> player.seekMs(args.getLong(0))
++            "NativePlayer.nextTrack" -> player.nextTrack()
++            "NativePlayer.previousTrack" -> player.previousTrack()
++            "NativePlayer.adjustVolume" -> player.adjustVolume(args.getInt(0))
++            "NativePlayer.setMuted" -> player.setMuted(args.getBoolean(0))
++            "NativePlayer.toggleMute" -> player.toggleMute()
++            "NativePlayer.seekRelative" -> player.seekRelative(args.getLong(0))
++            "NativePlayer.setAudioTrack" -> player.setAudioTrack(args.getInt(0))
++            "NativePlayer.setSubtitleTrack" -> player.setSubtitleTrack(args.getInt(0))
 +            "NativePlayer.setVolume" -> player.setVolume(args.getInt(0))
 +            "ExternalPlayer.initPlayer" -> external.initPlayer(args.getString(0))
 +            "MediaSegments.setSegmentTypeAction" -> segments.setSegmentTypeAction(args.getString(0), args.getString(1))
@@ -1282,7 +1584,7 @@ index 0000000000000000000000000000000000000000..d52ffd8fe09a51f87ec37fd6ea5e7ac6
 +}
 diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/ServerOrigin.java b/app/src/main/java/org/jellyfin/mobile/webapp/ServerOrigin.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..441e8de532ff05a7850776b6a1350da0614d0a80
+index 0000000..441e8de
 --- /dev/null
 +++ b/app/src/main/java/org/jellyfin/mobile/webapp/ServerOrigin.java
 @@ -0,0 +1,55 @@
@@ -1342,7 +1644,7 @@ index 0000000000000000000000000000000000000000..441e8de532ff05a7850776b6a1350da0
 +    @Override public int hashCode() { return Objects.hash(scheme, host, port); }
 +}
 diff --git a/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt b/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt
-index 2d4dcc5a3e963de79080fdadf1565c5a60e895bc..2478082b9384bf9bff8a8c6b65432acc802c0ab6 100644
+index 2d4dcc5..2478082 100644
 --- a/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt
 +++ b/app/src/main/java/org/jellyfin/mobile/webapp/WebViewFragment.kt
 @@ -44,7 +44,6 @@ import org.jellyfin.mobile.utils.extensions.getParcelableCompat
@@ -1464,7 +1766,7 @@ index 2d4dcc5a3e963de79080fdadf1565c5a60e895bc..2478082b9384bf9bff8a8c6b65432acc
          loadUrl("${server.hostname.trimEnd('/')}/")
          postDelayed(timeoutRunnable, Constants.INITIAL_CONNECTION_TIMEOUT)
 diff --git a/app/src/main/res/drawable/app_logo.xml b/app/src/main/res/drawable/app_logo.xml
-index 3aeaa90340d8d69b2d56c5f3d52927673271c65a..38ac873a690942f752f611be2b7e322555513e66 100644
+index 3aeaa90..38ac873 100644
 --- a/app/src/main/res/drawable/app_logo.xml
 +++ b/app/src/main/res/drawable/app_logo.xml
 @@ -1,46 +1,4 @@
@@ -1518,7 +1820,7 @@ index 3aeaa90340d8d69b2d56c5f3d52927673271c65a..38ac873a690942f752f611be2b7e3225
 +    <path android:fillColor="#A99AFF" android:pathData="M25,28h58v13h-22v40h-14v-40h-22z" />
  </vector>
 diff --git a/app/src/main/res/drawable/ic_launcher_foreground.xml b/app/src/main/res/drawable/ic_launcher_foreground.xml
-index 456a8779241dd4c7c0d30796a009e32b13941d78..38ac873a690942f752f611be2b7e322555513e66 100644
+index 456a877..38ac873 100644
 --- a/app/src/main/res/drawable/ic_launcher_foreground.xml
 +++ b/app/src/main/res/drawable/ic_launcher_foreground.xml
 @@ -1,19 +1,4 @@
@@ -1546,7 +1848,7 @@ index 456a8779241dd4c7c0d30796a009e32b13941d78..38ac873a690942f752f611be2b7e3225
  </vector>
 diff --git a/app/src/main/res/drawable/ic_notification.xml b/app/src/main/res/drawable/ic_notification.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..38ac873a690942f752f611be2b7e322555513e66
+index 0000000..38ac873
 --- /dev/null
 +++ b/app/src/main/res/drawable/ic_notification.xml
 @@ -0,0 +1,4 @@
@@ -1555,7 +1857,7 @@ index 0000000000000000000000000000000000000000..38ac873a690942f752f611be2b7e3225
 +    <path android:fillColor="#A99AFF" android:pathData="M25,28h58v13h-22v40h-14v-40h-22z" />
 +</vector>
 diff --git a/app/src/main/res/drawable/ic_splash.xml b/app/src/main/res/drawable/ic_splash.xml
-index 2c0d0c72ab2acc6e220a10d6dfa26846d3b1cfef..3ec83235b67de921d6a463d0214c88386643bd28 100644
+index 2c0d0c7..3ec8323 100644
 --- a/app/src/main/res/drawable/ic_splash.xml
 +++ b/app/src/main/res/drawable/ic_splash.xml
 @@ -1,9 +1,12 @@
@@ -1575,7 +1877,7 @@ index 2c0d0c72ab2acc6e220a10d6dfa26846d3b1cfef..3ec83235b67de921d6a463d0214c8838
  </vector>
 diff --git a/app/src/main/res/drawable/ic_tv_aspect_ratio.xml b/app/src/main/res/drawable/ic_tv_aspect_ratio.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..df48f6604a77cc9164cbf6fc6f5f31dcab87da58
+index 0000000..df48f66
 --- /dev/null
 +++ b/app/src/main/res/drawable/ic_tv_aspect_ratio.xml
 @@ -0,0 +1,11 @@
@@ -1592,7 +1894,7 @@ index 0000000000000000000000000000000000000000..df48f6604a77cc9164cbf6fc6f5f31dc
 +</vector>
 diff --git a/app/src/main/res/drawable/ic_tv_fast_forward.xml b/app/src/main/res/drawable/ic_tv_fast_forward.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..1db91972abad3a359d9b722a3021cf649ec3cb26
+index 0000000..1db9197
 --- /dev/null
 +++ b/app/src/main/res/drawable/ic_tv_fast_forward.xml
 @@ -0,0 +1,11 @@
@@ -1609,7 +1911,7 @@ index 0000000000000000000000000000000000000000..1db91972abad3a359d9b722a3021cf64
 +</vector>
 diff --git a/app/src/main/res/drawable/ic_tv_rewind.xml b/app/src/main/res/drawable/ic_tv_rewind.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..68b9b893d5db04ee1f718c91e3f9eda4eec30f67
+index 0000000..68b9b89
 --- /dev/null
 +++ b/app/src/main/res/drawable/ic_tv_rewind.xml
 @@ -0,0 +1,11 @@
@@ -1625,7 +1927,7 @@ index 0000000000000000000000000000000000000000..68b9b893d5db04ee1f718c91e3f9eda4
 +        android:pathData="M11,18V6l-8.5,6 8.5,6zM11.5,12l8.5,6V6l-8.5,6z" />
 +</vector>
 diff --git a/app/src/main/res/drawable/ripple_background_circular.xml b/app/src/main/res/drawable/ripple_background_circular.xml
-index 3eb6c84aa84f3d272c4d3b5bd0d6bdb7bfa2074f..3cf82c51c13b5f77332663642b51a138e5a74be8 100644
+index 3eb6c84..3cf82c5 100644
 --- a/app/src/main/res/drawable/ripple_background_circular.xml
 +++ b/app/src/main/res/drawable/ripple_background_circular.xml
 @@ -1,4 +1,5 @@
@@ -1656,7 +1958,7 @@ index 3eb6c84aa84f3d272c4d3b5bd0d6bdb7bfa2074f..3cf82c51c13b5f77332663642b51a138
 +</ripple>
 diff --git a/app/src/main/res/drawable/tv_banner.xml b/app/src/main/res/drawable/tv_banner.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..fde951360138ad58654a7d7125bbd4deefa607c5
+index 0000000..fde9513
 --- /dev/null
 +++ b/app/src/main/res/drawable/tv_banner.xml
 @@ -0,0 +1,4 @@
@@ -1666,7 +1968,7 @@ index 0000000000000000000000000000000000000000..fde951360138ad58654a7d7125bbd4de
 +</vector>
 diff --git a/app/src/main/res/drawable/tv_focus_bar.xml b/app/src/main/res/drawable/tv_focus_bar.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..7d38a49470b728c184c26cae20acb4113cc8692b
+index 0000000..7d38a49
 --- /dev/null
 +++ b/app/src/main/res/drawable/tv_focus_bar.xml
 @@ -0,0 +1,14 @@
@@ -1686,7 +1988,7 @@ index 0000000000000000000000000000000000000000..7d38a49470b728c184c26cae20acb411
 +</selector>
 diff --git a/app/src/main/res/drawable/tv_scrim_bottom.xml b/app/src/main/res/drawable/tv_scrim_bottom.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..086fb2c89c9aa49ac15c6eea1dbd0192ac3b7b06
+index 0000000..086fb2c
 --- /dev/null
 +++ b/app/src/main/res/drawable/tv_scrim_bottom.xml
 @@ -0,0 +1,4 @@
@@ -1696,7 +1998,7 @@ index 0000000000000000000000000000000000000000..086fb2c89c9aa49ac15c6eea1dbd0192
 +</shape>
 diff --git a/app/src/main/res/drawable/tv_scrim_top.xml b/app/src/main/res/drawable/tv_scrim_top.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..0b16e66b6c5df9579cca28530f5a9f6a51083987
+index 0000000..0b16e66
 --- /dev/null
 +++ b/app/src/main/res/drawable/tv_scrim_top.xml
 @@ -0,0 +1,4 @@
@@ -1706,7 +2008,7 @@ index 0000000000000000000000000000000000000000..0b16e66b6c5df9579cca28530f5a9f6a
 +</shape>
 diff --git a/app/src/main/res/layout-television/exo_player_control_view.xml b/app/src/main/res/layout-television/exo_player_control_view.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..c0a148cd16d770c906be218571044e527b1dcb89
+index 0000000..c0a148c
 --- /dev/null
 +++ b/app/src/main/res/layout-television/exo_player_control_view.xml
 @@ -0,0 +1,363 @@
@@ -2074,7 +2376,7 @@ index 0000000000000000000000000000000000000000..c0a148cd16d770c906be218571044e52
 +    </FrameLayout>
 +</androidx.constraintlayout.widget.ConstraintLayout>
 diff --git a/app/src/main/res/layout/exo_player_control_view.xml b/app/src/main/res/layout/exo_player_control_view.xml
-index 440b1820469323a47358f25436d44473696e7670..54700ccb9fc7e2ecfc1c37bbb11aaf3762d9f91b 100644
+index 440b182..54700cc 100644
 --- a/app/src/main/res/layout/exo_player_control_view.xml
 +++ b/app/src/main/res/layout/exo_player_control_view.xml
 @@ -131,8 +131,9 @@
@@ -2091,7 +2393,7 @@ index 440b1820469323a47358f25436d44473696e7670..54700ccb9fc7e2ecfc1c37bbb11aaf37
              app:unplayed_color="@color/playback_timebar_unplayed" />
 diff --git a/app/src/main/res/mipmap/ic_launcher.xml b/app/src/main/res/mipmap/ic_launcher.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..38ac873a690942f752f611be2b7e322555513e66
+index 0000000..38ac873
 --- /dev/null
 +++ b/app/src/main/res/mipmap/ic_launcher.xml
 @@ -0,0 +1,4 @@
@@ -2101,7 +2403,7 @@ index 0000000000000000000000000000000000000000..38ac873a690942f752f611be2b7e3225
 +</vector>
 diff --git a/app/src/main/res/mipmap/ic_launcher_round.xml b/app/src/main/res/mipmap/ic_launcher_round.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..38ac873a690942f752f611be2b7e322555513e66
+index 0000000..38ac873
 --- /dev/null
 +++ b/app/src/main/res/mipmap/ic_launcher_round.xml
 @@ -0,0 +1,4 @@
@@ -2110,7 +2412,7 @@ index 0000000000000000000000000000000000000000..38ac873a690942f752f611be2b7e3225
 +    <path android:fillColor="#A99AFF" android:pathData="M25,28h58v13h-22v40h-14v-40h-22z" />
 +</vector>
 diff --git a/app/src/main/res/values/strings_donottranslate.xml b/app/src/main/res/values/strings_donottranslate.xml
-index 4f119927d32f1cd40ca1ddef5070ef25442c2157..7474f41c9a72b93dec3aee1889be9f0ae7288692 100644
+index 4f11992..7474f41 100644
 --- a/app/src/main/res/values/strings_donottranslate.xml
 +++ b/app/src/main/res/values/strings_donottranslate.xml
 @@ -1,5 +1,5 @@
@@ -2123,7 +2425,7 @@ index 4f119927d32f1cd40ca1ddef5070ef25442c2157..7474f41c9a72b93dec3aee1889be9f0a
  </resources>
 diff --git a/app/src/main/res/values/tv_player_styles.xml b/app/src/main/res/values/tv_player_styles.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..fee356ea1b9b6f891fdbfa231d7bac44dd72dea6
+index 0000000..fee356e
 --- /dev/null
 +++ b/app/src/main/res/values/tv_player_styles.xml
 @@ -0,0 +1,21 @@
@@ -2149,7 +2451,7 @@ index 0000000000000000000000000000000000000000..fee356ea1b9b6f891fdbfa231d7bac44
 +    <string name="tv_player_ends_at" translatable="false">Ends at %1$s</string>
 +</resources>
 diff --git a/build.gradle.kts b/build.gradle.kts
-index aa3e24795ce90375d8bfd06744eeb5ef5f3a81b3..994e9f7bc91fde864b803b7fd7485e0b1e04c010 100644
+index aa3e247..994e9f7 100644
 --- a/build.gradle.kts
 +++ b/build.gradle.kts
 @@ -1,19 +1,11 @@
@@ -2179,7 +2481,7 @@ index aa3e24795ce90375d8bfd06744eeb5ef5f3a81b3..994e9f7bc91fde864b803b7fd7485e0b
  
 diff --git a/buildSrc/settings.gradle.kts b/buildSrc/settings.gradle.kts
 new file mode 100644
-index 0000000000000000000000000000000000000000..e0a5349a65993ed0700495c8618798030a6f9b35
+index 0000000..e0a5349
 --- /dev/null
 +++ b/buildSrc/settings.gradle.kts
 @@ -0,0 +1,8 @@
@@ -2192,7 +2494,7 @@ index 0000000000000000000000000000000000000000..e0a5349a65993ed0700495c861879803
 +    }
 +}
 diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
-index c5b509c600dcfb6a62e701c260a23a9dabdf9349..bbfb24eee8a5d1416d6d24a6d79967919c87be3d 100644
+index c5b509c..bbfb24e 100644
 --- a/gradle/libs.versions.toml
 +++ b/gradle/libs.versions.toml
 @@ -6,7 +6,7 @@ android-targetSdk = "36"
