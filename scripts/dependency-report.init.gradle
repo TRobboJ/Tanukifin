@@ -1,0 +1,79 @@
+import groovy.json.JsonOutput
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import groovy.json.JsonSlurper
+
+def overrides = new JsonSlurper().parse(new File(System.getenv('TANUKIFIN_AUDIT_DIR')).parentFile.toPath().resolve('dependency-versions.json').toFile())
+
+gradle.beforeProject { project ->
+    def pin = { configuration ->
+        configuration.resolutionStrategy.eachDependency { detail ->
+            def name = "${detail.requested.group}:${detail.requested.name}".toString()
+            def version = overrides[name]
+            if (version != null) {
+                if (name == 'com.google.guava:guava' && detail.requested.version?.endsWith('-android')) {
+                    version = version.replace('-jre', '-android')
+                }
+                detail.useVersion(version)
+                detail.because('Pinned security update; see the reviewed dependency-versions.json')
+            }
+        }
+    }
+    project.buildscript.configurations.configureEach(pin)
+    project.configurations.configureEach(pin)
+}
+
+allprojects { project ->
+    afterEvaluate {
+        // Resolve each build's configurations in its own task execution context.
+        // Gradle 9 forbids resolving them from a global projectsEvaluated callback.
+        if (project.projectDir.name == 'buildSrc' && project == rootProject) {
+            def export = tasks.register('exportTanukifinBuildSrcDependencies') {
+                doLast {
+                    def coordinates = [] as Set
+                    def collect = { configuration ->
+                        configuration.incoming.resolutionResult.allComponents.each { component ->
+                            def id = component.id
+                            if (id instanceof ModuleComponentIdentifier) {
+                                coordinates.add([name: "${id.group}:${id.module}".toString(), version: id.version])
+                            }
+                        }
+                    }
+                    project.buildscript.configurations.findAll { it.name == 'classpath' && it.canBeResolved }.each(collect)
+                    project.configurations.findAll { it.name in ['compileClasspath', 'runtimeClasspath'] && it.canBeResolved }.each(collect)
+                    def output = new File(System.getenv('TANUKIFIN_AUDIT_DIR'), 'buildsrc-dependencies.json')
+                    output.parentFile.mkdirs()
+                    output.text = JsonOutput.toJson(coordinates)
+                }
+            }
+            tasks.named('jar').configure { finalizedBy(export) }
+        }
+        if (project.path == ':app') {
+            tasks.register('exportTanukifinDependencies') {
+                doLast {
+                    def coordinates = [] as Set
+                    def collect = { configuration ->
+                        configuration.incoming.resolutionResult.allComponents.each { component ->
+                            def id = component.id
+                            if (id instanceof ModuleComponentIdentifier) {
+                                coordinates.add([name: "${id.group}:${id.module}".toString(), version: id.version])
+                            }
+                        }
+                    }
+                    collect(project.configurations.getByName('libreReleaseRuntimeClasspath'))
+                    rootProject.allprojects.each { item ->
+                        def classpath = item.buildscript.configurations.findByName('classpath')
+                        if (classpath != null && classpath.canBeResolved) collect(classpath)
+                    }
+                    def output = new File(System.getenv('TANUKIFIN_AUDIT_DIR'), 'dependencies.json')
+                    def buildSrc = new File(output.parentFile, 'buildsrc-dependencies.json')
+                    if (!buildSrc.exists()) throw new GradleException('buildSrc dependency audit is missing')
+                    coordinates.addAll(new JsonSlurper().parse(buildSrc))
+                    output.parentFile.mkdirs()
+                    output.text = JsonOutput.prettyPrint(JsonOutput.toJson(coordinates.sort { a, b ->
+                        (a.name <=> b.name) ?: (a.version <=> b.version)
+                    })) + '\n'
+                }
+            }
+        }
+    }
+}
